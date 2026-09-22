@@ -4,7 +4,7 @@ from pathlib import Path
 import stat
 from urllib.parse import quote
 
-WRITE_FOLDERS = frozenset({'000_Inbox', '020_Projects'})
+DEFAULT_WRITE_FOLDERS = ('000_Inbox', '020_Projects')
 WRITE_TOOLS = frozenset({
     'obsidian_put_content', 'obsidian_append_content',
     'obsidian_patch_content', 'obsidian_delete_file',
@@ -19,10 +19,19 @@ ALLOWED_TOOLS = WRITE_TOOLS | READ_TOOLS
 
 
 class VaultPolicy:
-    def __init__(self, vault: Path):
+    def __init__(self, vault: Path, *, write_folders=DEFAULT_WRITE_FOLDERS):
         if not vault.is_dir():
             raise ValueError('Configured Vault directory is unavailable')
         self.vault = vault.resolve(strict=True)
+        if not isinstance(write_folders, (list, tuple)):
+            raise ValueError('write_folders must be an array of top-level folder names')
+        for folder in write_folders:
+            if (not isinstance(folder, str) or not folder or folder.startswith('.')
+                    or folder != folder.strip()
+                    or any(c in folder for c in ('/', '\\', '%', ':', '*', '?'))
+                    or any(ord(c) < 32 or ord(c) == 127 for c in folder)):
+                raise ValueError('write_folders contains an invalid top-level folder name')
+        self.write_folders = frozenset(write_folders)
 
     def path(self, value, *, write=False, directory=False, delete=False):
         if not isinstance(value, str):
@@ -37,8 +46,8 @@ class VaultPolicy:
         if any(p in ('', '.', '..') for p in parts):
             raise PermissionError('Use a relative Vault path without traversal')
         if write:
-            if len(parts) < 2 or parts[0] not in WRITE_FOLDERS:
-                raise PermissionError('Writes are limited to 000_Inbox/ and 020_Projects/')
+            if len(parts) < 2 or parts[0] not in self.write_folders:
+                raise PermissionError('Writes are limited to configured write folders')
             if any(p.startswith('.') for p in parts):
                 raise PermissionError('Hidden files and configuration directories are not writable')
             if not (self.vault / parts[0]).is_dir():

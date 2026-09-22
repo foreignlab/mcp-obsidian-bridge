@@ -8,7 +8,9 @@ copy without changing Codex, Claude Code, Hermes, or n8n configuration.
 - Read access covers every Vault folder through file reads, batch reads,
   directory listings, simple/tag search, frontmatter, and recent changes.
 - Create, replace, append, patch, and single-file deletion are limited to
-  `000_Inbox/` and `020_Projects/`, including their subdirectories.
+  the top-level folders in `connection.json`'s `write_folders` allowlist,
+  including their subdirectories. The example enables `000_Inbox/`,
+  `020_Projects/`, and `045_LLM_WIKI/`.
 - Deletion requires the JSON boolean `true`; recursive directory deletion
   is not exposed. Replacement and deletion have destructive tool annotations.
 - Hidden write paths, traversal, absolute paths, symbolic links, and hard-linked
@@ -29,6 +31,32 @@ It is private (mode 0600); never attach it to a report or commit it to Git.
 The runtime checks that its API key matches that Vault's Local REST API
 settings and that HTTPS, a trusted certificate file, and TLS verification
 are configured before starting the stdio server.
+
+Set the complete write allowlist at the top level of `connection.json`:
+
+```json
+"write_folders": ["000_Inbox", "020_Projects", "045_LLM_WIKI"]
+```
+
+This list replaces the defaults. Omitting it preserves the original
+`000_Inbox` and `020_Projects` policy; `[]` disables all writes. Entries must
+be exact top-level folder names, without trailing slashes, wildcards, hidden
+names, or surrounding whitespace. Nested paths are not accepted as entries;
+all subdirectories of each allowed folder are included automatically.
+Malformed values (including `null`) prevent gateway startup. The target folder
+must already exist in the Vault and cannot be a symlink. Read access is unchanged.
+
+For managed deployments, edit
+`~/.local/share/obsidian-chatgpt-mcp/connection.json` (preserving mode 0600).
+Releases share this file. Restart the Tunnel LaunchAgent after editing so
+the running gateway reloads the policy and tool descriptions:
+
+```sh
+launchctl kickstart -k gui/$(id -u)/com.foreignlab.obsidian-chatgpt-tunnel
+```
+
+The allowlist is loaded once at startup; future folder changes need no code
+changes or redeployment. Release rollback does not restore this shared config.
 
 Use the absolute path to `launch.sh` as the Secure MCP Tunnel MCP command.
 The launcher is connected to the `obsidian-chatgpt` Secure MCP Tunnel.
@@ -77,7 +105,7 @@ Management: https://platform.openai.com/settings/organization/tunnels
 
 ## Validation and boundaries
 
-129 tests cover policy and tool dispatch. Integration tests use a temporary
+Tests cover policy and tool dispatch. Integration tests use a temporary
 HTTP fixture and temporary files; no real Vault writes are performed by them.
 The shared TLS client previously passed 84 tests including certificate rejection.
 

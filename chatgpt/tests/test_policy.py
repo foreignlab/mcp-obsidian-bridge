@@ -105,3 +105,53 @@ def test_root_directory_listing_is_allowed(vault):
 def test_write_without_vault_fails_closed(tmp_path):
     with pytest.raises((ValueError, PermissionError)):
         VaultPolicy(tmp_path / 'missing')
+
+
+@pytest.mark.parametrize('tool', ['obsidian_put_content', 'obsidian_append_content', 'obsidian_patch_content', 'obsidian_delete_file'])
+def test_configured_folder_allows_writes_and_replaces_defaults(vault, tool):
+    (vault / '045_LLM_WIKI/sub').mkdir(parents=True)
+    (vault / '045_LLM_WIKI/sub/note.md').write_text('test')
+    policy = VaultPolicy(vault, write_folders=['045_LLM_WIKI'])
+    args = {'filepath': '045_LLM_WIKI/sub/note.md', 'confirm': True}
+    assert policy.prepare(tool, args)['filepath'] == args['filepath']
+    for path in ('000_Inbox/note.md', '045_LLM_WIKI-extra/note.md',
+                 '045_LLM_WIKI/.hidden.md', '045_LLM_WIKI/../root.md'):
+        with pytest.raises(PermissionError):
+            policy.prepare(tool, {'filepath': path, 'confirm': True})
+
+
+def test_empty_allowlist_disables_writes_but_preserves_reads(vault):
+    policy = VaultPolicy(vault, write_folders=[])
+    with pytest.raises(PermissionError):
+        policy.path('000_Inbox/note.md', write=True)
+    assert policy.path('000_Inbox/note.md') == '000_Inbox/note.md'
+
+
+@pytest.mark.parametrize('folders', [
+    None, '', '045_LLM_WIKI', {}, 42, [None], [42], [''], ['.obsidian'],
+    ['..'], ['/045_LLM_WIKI'], ['045_LLM_WIKI/'], ['parent/child'],
+    ['a\\b'], ['%2e%2e'], ['a:b'], ['a\n'], ['a\x00'], ['a\x7f'],
+    ['*'], ['045_*'], ['a?'], [' 045_LLM_WIKI'], ['045_LLM_WIKI '],
+])
+def test_invalid_allowlist_fails_closed(vault, folders):
+    with pytest.raises(ValueError):
+        VaultPolicy(vault, write_folders=folders)
+
+
+def test_configured_root_symlink_and_hardlink_are_rejected(vault):
+    (vault / '045_LLM_WIKI').symlink_to(vault / '040_Literature_Notes', target_is_directory=True)
+    policy = VaultPolicy(vault, write_folders=['045_LLM_WIKI'])
+    with pytest.raises(PermissionError):
+        policy.path('045_LLM_WIKI/note.md', write=True)
+    (vault / '045_LLM_WIKI').unlink()
+    (vault / '045_LLM_WIKI').mkdir()
+    target = vault / '040_Literature_Notes/note.md'
+    target.write_text('protected')
+    (vault / '045_LLM_WIKI/link.md').hardlink_to(target)
+    with pytest.raises(PermissionError):
+        policy.path('045_LLM_WIKI/link.md', write=True)
+
+
+def test_unavailable_configured_folder_is_rejected(vault):
+    with pytest.raises(PermissionError):
+        VaultPolicy(vault, write_folders=['missing']).path('missing/note.md', write=True)

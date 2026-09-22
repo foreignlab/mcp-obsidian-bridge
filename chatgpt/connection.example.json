@@ -1,5 +1,6 @@
 {
   "vault": "/absolute/path/to/vault",
+  "write_folders": ["000_Inbox", "020_Projects", "045_LLM_WIKI"],
   "env": {
     "OBSIDIAN_API_KEY": "REPLACE_LOCALLY",
     "OBSIDIAN_HOST": "127.0.0.1",

@@ -15,7 +15,7 @@ from mcp_obsidian import obsidian
 
 @pytest.fixture
 def service(tmp_path, monkeypatch):
-    for folder in ('000_Inbox', '020_Projects', '040_Literature_Notes'):
+    for folder in ('000_Inbox', '020_Projects', '040_Literature_Notes', '045_LLM_WIKI'):
         (tmp_path / folder).mkdir()
     original = tmp_path / '040_Literature_Notes/note.md'
     original.write_text('protected content')
@@ -47,7 +47,9 @@ def service(tmp_path, monkeypatch):
         api_key='test-only-key', protocol='http', host='127.0.0.1', port=server.server_port,
     ))
     monkeypatch.setenv('NO_PROXY', '*')
-    app, list_tools, call_tool = create_gateway(tmp_path)
+    app, list_tools, call_tool = create_gateway(
+        tmp_path, write_folders=['000_Inbox', '020_Projects', '045_LLM_WIKI'],
+    )
     try:
         yield tmp_path, list_tools, call_tool, requests
     finally:
@@ -56,7 +58,7 @@ def service(tmp_path, monkeypatch):
         thread.join()
 
 
-@pytest.mark.parametrize('folder', ['000_Inbox', '020_Projects'])
+@pytest.mark.parametrize('folder', ['000_Inbox', '020_Projects', '045_LLM_WIKI'])
 def test_tool_call_writes_allowed_file_through_rest(service, folder):
     vault, _, call, requests = service
     path = f'{folder}/日本語 #1?.md'
@@ -109,3 +111,16 @@ def test_advertised_tools_match_enforced_policy(service):
     with pytest.raises(PermissionError):
         asyncio.run(call('obsidian_complex_search', {'query': {}}))
     assert requests == []
+
+
+@pytest.mark.parametrize('folders', [['045_LLM_WIKI'], []])
+def test_tool_descriptions_follow_configured_write_folders(tmp_path, folders):
+    _, list_tools, _ = create_gateway(tmp_path, write_folders=folders)
+    for tool in asyncio.run(list_tools()):
+        if not tool.annotations.readOnlyHint:
+            assert '000_Inbox/' not in tool.description
+            assert '020_Projects/' not in tool.description
+            if folders:
+                assert '045_LLM_WIKI/' in tool.description
+            else:
+                assert 'disabled' in tool.description.lower()

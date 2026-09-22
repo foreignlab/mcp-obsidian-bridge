@@ -12,16 +12,22 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import InitializedNotification, ToolAnnotations
 
-from policy import ALLOWED_TOOLS, WRITE_TOOLS, VaultPolicy
+from policy import ALLOWED_TOOLS, DEFAULT_WRITE_FOLDERS, WRITE_TOOLS, VaultPolicy
 from diagnostics import Diagnostics
 
 
-def create_gateway(vault, diagnostics=None):
+def create_gateway(vault, diagnostics=None, *, write_folders=DEFAULT_WRITE_FOLDERS):
     from mcp_obsidian.server import tool_handlers
     from mcp_obsidian.request_diagnostics import failure_details, observe_request_failures
 
     diagnostics = diagnostics or Diagnostics()
-    policy = VaultPolicy(Path(vault))
+    policy = VaultPolicy(Path(vault), write_folders=write_folders)
+    write_scope = (
+        ' Restricted to files under: '
+        + ', '.join(f'{folder}/' for folder in sorted(policy.write_folders))
+        + '; hidden paths and links are rejected.'
+        if policy.write_folders else ' Writes are disabled by configuration.'
+    )
     app = Server('obsidian-chatgpt-restricted')
     catalog = {}
     for name in sorted(ALLOWED_TOOLS):
@@ -37,10 +43,10 @@ def create_gateway(vault, diagnostics=None):
             properties['filepaths'].update(minItems=1, maxItems=50)
         if 'days' in properties:
             properties['days']['maximum'] = 3650
-        if name in WRITE_TOOLS:
-            tool.description += ' Restricted to files under 000_Inbox/ and 020_Projects/; hidden paths and links are rejected.'
         if name == 'obsidian_delete_file':
-            tool.description = 'Delete one existing regular file under 000_Inbox/ or 020_Projects/. Directories cannot be deleted. Requires boolean confirm=true.'
+            tool.description = 'Delete one existing regular file. Directories cannot be deleted. Requires boolean confirm=true.'
+        if name in WRITE_TOOLS:
+            tool.description += write_scope
         tool.annotations = ToolAnnotations(
             readOnlyHint=name not in WRITE_TOOLS,
             destructiveHint=name in WRITE_TOOLS and name != 'obsidian_append_content',
@@ -126,7 +132,10 @@ async def main():
             if Obsidian(env['OBSIDIAN_API_KEY']).verify_ssl is not True:
                 raise ValueError('TLS verification must be enabled')
             stage = 'create_gateway'
-            app, _, _ = create_gateway(vault, diagnostics=diagnostics)
+            app, _, _ = create_gateway(
+                vault, diagnostics=diagnostics,
+                write_folders=config.get('write_folders', DEFAULT_WRITE_FOLDERS),
+            )
             stage = 'stdio'
             async with stdio_server() as (read, write):
                 # Ready to serve; this does not claim a completed MCP handshake.

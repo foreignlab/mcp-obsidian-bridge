@@ -152,7 +152,7 @@ def test_startup_failure_has_stage_and_no_traceback(monkeypatch, capsys):
     assert logs[-1]['stage'] == 'load_config'
 
 
-@pytest.mark.parametrize('stage', ['https_config', 'ca_config', 'vault_config', 'api_key_check'])
+@pytest.mark.parametrize('stage', ['https_config', 'ca_config', 'vault_config', 'api_key_check', 'create_gateway'])
 def test_startup_validation_failure_identifies_stage(tmp_path, monkeypatch, capsys, stage):
     plugin = tmp_path / '.obsidian/plugins/obsidian-local-rest-api'
     plugin.mkdir(parents=True)
@@ -164,6 +164,7 @@ def test_startup_validation_failure_identifies_stage(tmp_path, monkeypatch, caps
     if stage != 'ca_config':
         ca.touch()
     (tmp_path / 'connection.json').write_text(json.dumps({
+        'write_folders': None if stage == 'create_gateway' else ['000_Inbox'],
         'vault': str(tmp_path), 'env': {
             'OBSIDIAN_PROTOCOL': 'http' if stage == 'https_config' else 'https',
             'REQUESTS_CA_BUNDLE': str(ca), 'OBSIDIAN_API_KEY': SECRET,
@@ -236,6 +237,7 @@ def test_stdio_handshake_and_rejections_keep_protocol_and_logs_separate(tmp_path
     ca = tmp_path / 'fake-ca.pem'
     ca.touch()
     (tmp_path / 'connection.json').write_text(json.dumps({
+        'write_folders': ['045_LLM_WIKI'],
         'vault': str(tmp_path), 'env': {
             'OBSIDIAN_PROTOCOL': 'https', 'REQUESTS_CA_BUNDLE': str(ca),
             'OBSIDIAN_API_KEY': SECRET,
@@ -259,6 +261,10 @@ def test_stdio_handshake_and_rejections_keep_protocol_and_logs_separate(tmp_path
                 assert SECRET not in result.content[0].text
                 tools = await session.list_tools()
                 assert len(tools.tools) == 12
+                for tool in tools.tools:
+                    if not tool.annotations.readOnlyHint:
+                        assert '045_LLM_WIKI/' in tool.description
+                        assert '000_Inbox/' not in tool.description
 
     with (tmp_path / 'stderr.log').open('w+') as log:
         asyncio.run(asyncio.wait_for(exercise(log), timeout=10))
