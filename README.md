@@ -68,5 +68,7 @@ dispatcher. The checks were not made through ChatGPT or the running Tunnel.
 See [the investigation and validation record](docs/investigations/2026-09-22.md).
 
 Deployment is still pending: the running copies retain the DQL implementation.
-Next: add redacted diagnostic logging, establish deployment/rollback steps, then
-deploy and verify through ChatGPT.
+Content-free diagnostic logging is also implemented in the source gateway;
+see [the diagnostics runbook](docs/diagnostics.md). Next: establish
+deployment/rollback steps and log retention, then deploy and verify through
+ChatGPT.

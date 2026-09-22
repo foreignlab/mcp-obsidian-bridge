@@ -4,6 +4,7 @@ import urllib.parse
 import os
 from datetime import datetime, timedelta
 from typing import Any
+from .request_diagnostics import report_request_failure
 
 class Obsidian():
     def __init__(
@@ -39,6 +40,7 @@ class Obsidian():
         try:
             return f()
         except requests.HTTPError as e:
+            report_request_failure(e)
             error_data = {}
             if e.response is not None and e.response.content:
                 try:
@@ -51,6 +53,7 @@ class Obsidian():
             message = error_data.get('message', '<unknown>')
             raise Exception(f"Error {code}: {message}")
         except requests.exceptions.RequestException as e:
+            report_request_failure(e)
             raise Exception(f"Request failed: {str(e)}")
 
     def list_files_in_vault(self) -> Any:

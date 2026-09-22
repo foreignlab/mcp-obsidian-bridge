@@ -4,18 +4,23 @@ import asyncio
 import json
 import os
 from pathlib import Path
+from time import monotonic
+from uuid import uuid4
 
 from jsonschema import Draft202012Validator
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import ToolAnnotations
+from mcp.types import InitializedNotification, ToolAnnotations
 
 from policy import ALLOWED_TOOLS, WRITE_TOOLS, VaultPolicy
+from diagnostics import Diagnostics
 
 
-def create_gateway(vault):
+def create_gateway(vault, diagnostics=None):
     from mcp_obsidian.server import tool_handlers
+    from mcp_obsidian.request_diagnostics import failure_details, observe_request_failures
 
+    diagnostics = diagnostics or Diagnostics()
     policy = VaultPolicy(Path(vault))
     app = Server('obsidian-chatgpt-restricted')
     catalog = {}
@@ -45,41 +50,97 @@ def create_gateway(vault):
         catalog[name] = tool
     validators = {name: Draft202012Validator(tool.inputSchema) for name, tool in catalog.items()}
 
+    async def initialized(notification):
+        diagnostics.emit('mcp_initialized')
+
+    app.notification_handlers[InitializedNotification] = initialized
+
     @app.list_tools()
     async def list_tools():
         return list(catalog.values())
 
-    @app.call_tool()
+    # Validate inside our handler so SDK dispatch and direct calls both log
+    # rejected arguments without the SDK echoing their contents into errors.
+    @app.call_tool(validate_input=False)
     async def call_tool(name, arguments):
-        if name not in catalog:
-            raise PermissionError('Tool is not enabled for ChatGPT')
-        # Validate even when called directly rather than through the SDK dispatcher.
-        if not validators[name].is_valid(arguments):
-            raise ValueError('Invalid tool arguments')
-        prepared = policy.prepare(name, arguments)
-        return tool_handlers[name].run_tool(prepared)
+        fields = {'call_id': uuid4().hex, 'tool': name if name in catalog else 'unknown'}
+        started = monotonic()
+        api_error_count = 0
+
+        def api_failed(details):
+            nonlocal api_error_count
+            api_error_count += 1
+            diagnostics.emit('api_error', **fields, **details)
+
+        diagnostics.emit('tool_started', **fields)
+        stage = 'tool_not_allowed'
+        try:
+            with observe_request_failures(api_failed):
+                if name not in catalog:
+                    raise PermissionError('Tool is not enabled for ChatGPT')
+                stage = 'invalid_arguments'
+                if not validators[name].is_valid(arguments):
+                    raise ValueError('Invalid tool arguments')
+                stage = 'policy_rejected'
+                prepared = policy.prepare(name, arguments)
+                stage = 'backend'
+                result = tool_handlers[name].run_tool(prepared)
+        except Exception as error:
+            details = failure_details(error) if stage == 'backend' else {'category': stage}
+            diagnostics.emit('tool_failed', **fields, **details,
+                             duration_ms=round((monotonic() - started) * 1000, 3),
+                             api_error_count=api_error_count)
+            raise
+        diagnostics.emit('tool_completed', **fields,
+                         outcome='completed_with_api_errors' if api_error_count else 'success',
+                         duration_ms=round((monotonic() - started) * 1000, 3),
+                         api_error_count=api_error_count)
+        return result
 
     return app, list_tools, call_tool
 
 
 async def main():
-    config = json.loads(Path(__file__).with_name('connection.json').read_text())
-    env = config['env']
-    if env.get('OBSIDIAN_PROTOCOL') != 'https':
-        raise ValueError('HTTPS is required')
-    if not Path(env.get('REQUESTS_CA_BUNDLE', '')).is_file():
-        raise ValueError('Trusted certificate file is required')
-    vault = Path(config['vault'])
-    settings = json.loads((vault / '.obsidian/plugins/obsidian-local-rest-api/data.json').read_text())
-    if settings.get('apiKey') != env.get('OBSIDIAN_API_KEY'):
-        raise ValueError('Configured API key does not match the guarded Vault')
-    os.environ.update(env)
-    from mcp_obsidian.obsidian import Obsidian
-    if Obsidian(env['OBSIDIAN_API_KEY']).verify_ssl is not True:
-        raise ValueError('TLS verification must be enabled')
-    app, _, _ = create_gateway(vault)
-    async with stdio_server() as (read, write):
-        await app.run(read, write, app.create_initialization_options())
+    diagnostics = Diagnostics()
+    with diagnostics.capture_library_logs():
+        diagnostics.emit('gateway_starting')
+        stage = 'load_config'
+        try:
+            config = json.loads(Path(__file__).with_name('connection.json').read_text())
+            env = config['env']
+            stage = 'https_config'
+            if env.get('OBSIDIAN_PROTOCOL') != 'https':
+                raise ValueError('HTTPS is required')
+            stage = 'ca_config'
+            if not Path(env.get('REQUESTS_CA_BUNDLE', '')).is_file():
+                raise ValueError('Trusted certificate file is required')
+            stage = 'vault_config'
+            vault = Path(config['vault'])
+            settings = json.loads((vault / '.obsidian/plugins/obsidian-local-rest-api/data.json').read_text())
+            stage = 'api_key_check'
+            if settings.get('apiKey') != env.get('OBSIDIAN_API_KEY'):
+                raise ValueError('Configured API key does not match the guarded Vault')
+            os.environ.update(env)
+            stage = 'tls_check'
+            from mcp_obsidian.obsidian import Obsidian
+            if Obsidian(env['OBSIDIAN_API_KEY']).verify_ssl is not True:
+                raise ValueError('TLS verification must be enabled')
+            stage = 'create_gateway'
+            app, _, _ = create_gateway(vault, diagnostics=diagnostics)
+            stage = 'stdio'
+            async with stdio_server() as (read, write):
+                # Ready to serve; this does not claim a completed MCP handshake.
+                diagnostics.emit('gateway_ready')
+                await app.run(read, write, app.create_initialization_options())
+        except asyncio.CancelledError:
+            diagnostics.emit('gateway_stopped', reason='cancelled')
+            raise
+        except Exception:
+            diagnostics.emit('gateway_failed', stage=stage)
+            # Startup exceptions may embed paths or configuration values.
+            raise SystemExit(1) from None
+        else:
+            diagnostics.emit('gateway_stopped', reason='stream_closed')
 
 
 if __name__ == '__main__':
