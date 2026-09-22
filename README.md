@@ -1,6 +1,10 @@
-# Obsidian MCP
+# obsidian-chatgpt-mcp
 
 Shared Obsidian MCP client and the restricted ChatGPT gateway used with OpenAI Secure MCP Tunnel.
+
+The source project is named `obsidian-chatgpt-mcp`, matching the deployed
+gateway directory. The shared Python distribution and command retain the
+upstream name `mcp-obsidian`; the import package remains `mcp_obsidian`.
 
 ## Layout
 
@@ -39,8 +43,30 @@ Credentials, trusted CA certificates, downloaded tunnel binaries, profiles, logs
 
 Deployment automation and cutover are pending. Editing this checkout does not update the running service. Plan and validate deployment separately, including rollback, because Codex and Claude Code also use the shared client.
 
-## Known issue and next work
+## Recent Changes compatibility
 
-`obsidian_get_recent_changes` still sends Dataview DQL, which the deployed Local REST API 5.1.0 rejects with error 40012. This initial import intentionally preserves that behavior as a reviewable baseline. See [the investigation](docs/investigations/2026-09-22.md).
+`obsidian_get_recent_changes` uses a fixed internal JSONLogic query supported by
+Local REST API 5.1.0. It returns Markdown notes modified since local midnight
+`days` calendar days ago, inclusive, using the MCP process's timezone. Run the
+client in the same timezone as Obsidian to preserve the previous DQL boundary.
+Results are sorted by modification time descending, then by filename for ties,
+before applying `limit`.
 
-Next: replace that internal query with JSONLogic and appropriate sorting/limits, add API contract coverage and redacted diagnostic logging, then validate and deploy the changes.
+The former table response shape is preserved:
+
+```json
+[{"filename": "example.md", "result": {"file.mtime": "2026-09-22T09:00:00.123+09:00"}}]
+```
+
+The query requests timestamps only; it does not return note content or expose
+arbitrary JSONLogic through the ChatGPT gateway. TLS verification and existing
+write restrictions remain enabled.
+
+The source fix passed 224 tests and read-only HTTPS checks against the installed
+REST API 5.1.0 on 2026-09-22, both directly and through the source gateway's tool
+dispatcher. The checks were not made through ChatGPT or the running Tunnel.
+See [the investigation and validation record](docs/investigations/2026-09-22.md).
+
+Deployment is still pending: the running copies retain the DQL implementation.
+Next: add redacted diagnostic logging, establish deployment/rollback steps, then
+deploy and verify through ChatGPT.

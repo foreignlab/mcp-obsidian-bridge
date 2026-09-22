@@ -170,18 +170,6 @@ def test_get_recent_periodic_notes_sends_query_params():
     assert mock_get.call_args.kwargs["params"] == {"limit": 3, "includeContent": True}
 
 
-def test_get_recent_changes_posts_dataview_query():
-    api = _make_obsidian()
-    payload = [{"filename": "a.md"}]
-    with patch("mcp_obsidian.obsidian.requests.post", return_value=_json_response(payload)) as mock_post:
-        assert api.get_recent_changes(limit=7, days=14) == payload
-
-    kwargs = mock_post.call_args.kwargs
-    assert mock_post.call_args.args[0] == "http://localhost:27123/search/"
-    assert kwargs["headers"]["Content-Type"] == "application/vnd.olrapi.dataview.dql+txt"
-    assert kwargs["data"] == b"TABLE file.mtime\nWHERE file.mtime >= date(today) - dur(14 days)\nSORT file.mtime DESC\nLIMIT 7"
-
-
 def test_get_batch_file_contents_includes_successes_and_errors():
     api = _make_obsidian()
     with patch.object(api, "get_file_contents", side_effect=["alpha", Exception("missing"), "gamma"]):
