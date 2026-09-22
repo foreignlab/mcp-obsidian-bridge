@@ -228,7 +228,7 @@ def test_stdio_handshake_and_rejections_keep_protocol_and_logs_separate(tmp_path
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
 
-    for name in ('gateway.py', 'diagnostics.py', 'policy.py'):
+    for name in ('gateway.py', 'diagnostics.py', 'log_store.py', 'policy.py'):
         shutil.copyfile(Path(gateway.__file__).with_name(name), tmp_path / name)
     plugin = tmp_path / '.obsidian/plugins/obsidian-local-rest-api'
     plugin.mkdir(parents=True)

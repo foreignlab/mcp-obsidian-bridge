@@ -7,11 +7,14 @@ import logging
 import os
 import sys
 from uuid import uuid4
+from log_store import BoundedLog
 
 
 class Diagnostics:
     def __init__(self):
         self.run_id = uuid4().hex
+        directory = os.getenv('OBSIDIAN_DIAGNOSTICS_DIR')
+        self.store = BoundedLog(directory) if directory else None
 
     def emit(self, event, **fields):
         record = {
@@ -21,8 +24,15 @@ class Diagnostics:
             'event': event,
             **fields,
         }
+        line = json.dumps(record, separators=(',', ':')) + '\n'
+        if self.store is not None:
+            try:
+                self.store.write(line)
+                return
+            except (OSError, ValueError):
+                pass
         try:
-            sys.stderr.write(json.dumps(record, separators=(',', ':')) + '\n')
+            sys.stderr.write(line)
             sys.stderr.flush()
         except (OSError, ValueError):
             pass

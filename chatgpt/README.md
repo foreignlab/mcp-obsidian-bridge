@@ -62,11 +62,12 @@ Probe using `tunnel-client health --url-file <health-file> --pid-file <pid-file>
 `tunnel/launchd-runtime.log`; launchd output is in `tunnel/launchd.stdout.log`
 and `tunnel/launchd.stderr.log`.
 
-The source gateway now emits content-free JSON diagnostics to stderr: startup,
+The gateway emits content-free JSON diagnostics: startup,
 MCP initialization, correlated tool calls, and classified REST failures. See
 [the diagnostics runbook](../docs/diagnostics.md) for fields and incident
-triage. This addition is not yet deployed; verify stderr forwarding and
-configure log retention when deploying it.
+triage. The [managed deployment](../docs/deployment.md) uses an isolated,
+commit-addressed environment and writes bounded diagnostics to
+`logs/gateway.jsonl`; unmanaged launches default to stderr.
 
 The full Japanese runbook is in the Vault:
 `000_Inbox/2026-09-20 Obsidian MCP Tunnel 設定・検証結果.md`.

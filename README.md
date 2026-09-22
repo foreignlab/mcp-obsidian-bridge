@@ -41,7 +41,10 @@ No running service or client configuration was changed by the initial import. `c
 
 Credentials, trusted CA certificates, downloaded tunnel binaries, profiles, logs, and PID files stay outside Git. `chatgpt/connection.example.json` shows the configuration shape with placeholders. Never copy live `connection.json` or runtime keys into tracked files.
 
-Deployment automation and cutover are pending. Editing this checkout does not update the running service. Plan and validate deployment separately, including rollback, because Codex and Claude Code also use the shared client.
+Use [the deployment runbook](docs/deployment.md) to prepare an isolated,
+commit-addressed ChatGPT release, activate it, or restore the previous version.
+Editing this checkout does not update the running service. The ChatGPT release
+has its own locked environment; the other clients' shared installation stays separate.
 
 ## Recent Changes compatibility
 
@@ -67,8 +70,7 @@ REST API 5.1.0 on 2026-09-22, both directly and through the source gateway's too
 dispatcher. The checks were not made through ChatGPT or the running Tunnel.
 See [the investigation and validation record](docs/investigations/2026-09-22.md).
 
-Deployment is still pending: the running copies retain the DQL implementation.
-Content-free diagnostic logging is also implemented in the source gateway;
-see [the diagnostics runbook](docs/diagnostics.md). Next: establish
-deployment/rollback steps and log retention, then deploy and verify through
-ChatGPT.
+Content-free diagnostic logging is implemented in the gateway, with bounded
+file retention under the managed launcher; see [the diagnostics runbook](docs/diagnostics.md).
+Check `scripts/deploy.py status` for the locally active release. Local tests
+and source changes alone do not establish a successful production cutover.

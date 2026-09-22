@@ -1,9 +1,10 @@
 # Gateway diagnostics
 
-The ChatGPT gateway writes one JSON record per line to **stderr**. Stdout
-remains exclusively for MCP protocol messages. No extra dependency or logging
-service is required. These changes are in the source checkout; deployment and
-verification of the running Tunnel's log capture are still pending.
+The ChatGPT gateway writes one JSON record per line. The managed launcher
+sets `OBSIDIAN_DIAGNOSTICS_DIR` to the runtime `logs/` directory; without it,
+records go to **stderr**. Stdout remains exclusively for MCP protocol messages.
+No extra dependency or logging service is required. See the
+[deployment runbook](deployment.md) for activation and rollback.
 
 ## What is recorded
 
@@ -62,7 +63,7 @@ They identify where to investigate without printing configuration or paths.
    The diagnostic timestamps use UTC (subtract nine hours from JST).
 2. Check Tunnel health and its forwarding log separately. Gateway diagnostics
    cannot establish why a request never reached this Mac.
-3. In the gateway stderr capture, find the relevant `run_id`, then follow the
+3. In `logs/gateway.jsonl` (including rotated backups), find the relevant `run_id`, then follow the
    matching `call_id` from `tool_started` to `tool_completed` or `tool_failed`.
 4. Compare `api_error` records and numeric codes. A started call without a
    terminal record may indicate termination, a hang, or missing log output;
@@ -71,15 +72,16 @@ They identify where to investigate without printing configuration or paths.
    and Tunnel events. Raw dependency messages and tracebacks are deliberately
    omitted, so this event alone does not identify the exact protocol error.
 
-The current LaunchAgent captures stderr at
+The LaunchAgent captures fallback stderr at
 `~/.local/share/obsidian-chatgpt-mcp/tunnel/launchd.stderr.log`; the Tunnel's own
-runtime log is `tunnel/launchd-runtime.log`. During deployment, verify that the
-new JSON records actually reach the stderr capture through the Tunnel.
+runtime log is `tunnel/launchd-runtime.log`. These are separate from the
+managed gateway log. Verify a remote tool call against gateway diagnostics
+after each deployment.
 
-Example searches after that verification:
+Example searches:
 
 ```sh
-log="$HOME/.local/share/obsidian-chatgpt-mcp/tunnel/launchd.stderr.log"
+log="$HOME/.local/share/obsidian-chatgpt-mcp/logs/gateway.jsonl"
 rg '"event":"(gateway_failed|tool_failed|api_error|library_error)"' "$log"
 rg '"call_id":"REPLACE_WITH_CALL_ID"' "$log"
 ```
@@ -96,14 +98,16 @@ rg '"call_id":"REPLACE_WITH_CALL_ID"' "$log"
   configuration is not changed.
 - Tool errors returned over MCP retain their existing behavior. This logging
   policy is not a redaction policy for tool responses or Tunnel-owned logs.
-- A stderr write failure is ignored so diagnostics cannot turn a completed
+- A file-store failure falls back to stderr; a stderr write failure is ignored
+  so diagnostics cannot turn a completed
   Vault write into an apparent failure and encourage a duplicate retry.
 - Imports before entry into `main`, forced process termination (including
   SIGTERM/SIGKILL), and failures before reaching the gateway may have no
   terminal event. The absence of logs is not proof that no incident occurred.
-- The gateway does not rotate or delete the enclosing LaunchAgent log.
-  Configure retention/rotation as part of deployment; existing captured logs
-  are not retroactively redacted.
+- Managed gateway logs rotate at 10 MiB with five backups (about 60 MiB
+  total), with a process lock and private file permissions. This is a size
+  limit, not a guaranteed retention period. Existing Tunnel/LaunchAgent logs
+  are not rotated, deleted, or retroactively redacted.
 
 ## Verification
 
@@ -114,6 +118,9 @@ stderr write failure, startup validation stages, and dependency-message
 redaction. A subprocess test performs a real stdio MCP handshake and rejected
 tool calls with synthetic secrets, verifying that protocol traffic and JSON
 diagnostics remain separate.
+
+`chatgpt/tests/test_log_store.py` covers bounded rotation, private permissions,
+file-to-stderr fallback, and concurrent writers without lost or interleaved records.
 
 Run the full suite with `.venv/bin/python -m pytest -q`. Tests use temporary
 files and fixtures; they do not modify the real Vault.
