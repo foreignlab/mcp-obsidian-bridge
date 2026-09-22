@@ -32,12 +32,18 @@ Tests use mocks, temporary files, and local HTTP/HTTPS fixtures. They do not wri
 
 ## Deployment status
 
-This checkout is the source repository. The current running copies remain at:
+This checkout is the source repository. Runtime installations remain at:
 
 - `~/.local/share/mcp-obsidian-tls/`
 - `~/.local/share/obsidian-chatgpt-mcp/`
 
-No running service or client configuration was changed by the initial import. `chatgpt/launch.sh` deliberately retains its existing absolute deployment paths; it starts the deployed copy, not this checkout. `chatgpt/README.md` documents that deployment.
+On 2026-09-22 the ChatGPT runtime was switched to release `1b5b818`, with a
+dedicated environment under `releases/` and a managed `current` pointer. The
+shared installation used by other clients remains unchanged. See the
+[deployment verification record](docs/deployments/2026-09-22.md).
+
+`chatgpt/launch.sh` is the historical launcher snapshot; deployment generates
+the managed runtime launcher. Copying that historical file is not a deployment.
 
 Credentials, trusted CA certificates, downloaded tunnel binaries, profiles, logs, and PID files stay outside Git. `chatgpt/connection.example.json` shows the configuration shape with placeholders. Never copy live `connection.json` or runtime keys into tracked files.
 
@@ -69,6 +75,11 @@ The source fix passed 224 tests and read-only HTTPS checks against the installed
 REST API 5.1.0 on 2026-09-22, both directly and through the source gateway's tool
 dispatcher. The checks were not made through ChatGPT or the running Tunnel.
 See [the investigation and validation record](docs/investigations/2026-09-22.md).
+
+The subsequent production deployment passed 272 tests, the installed-launcher
+probe, and a Recent Changes call through the connected Obsidian app/Tunnel.
+The remote call was correlated with a successful diagnostic event from the
+Tunnel's gateway process; see the deployment record above.
 
 Content-free diagnostic logging is implemented in the gateway, with bounded
 file retention under the managed launcher; see [the diagnostics runbook](docs/diagnostics.md).

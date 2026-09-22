@@ -16,8 +16,8 @@
 - [x] Test with temporary Git repositories and fake service callbacks: dirty tree, unsafe archive members, incomplete release, preflight failure, health failure, successful switching, legacy rollback, repeated prepare, and concurrent deployment lock.
 - [x] Document deployment, first rollback, subsequent rollback, log retention, and interrupted-transition recovery in `docs/deployment.md`.
 - [x] Run the full suite and commit the deployable source.
-- [ ] Prepare the committed release in the production root; run the read-only probe before any restart.
-- [ ] Activate, verify Tunnel health and the installed launcher, then check the connected Obsidian app if available. Record any end-to-end verification that remains unavailable.
+- [x] Prepare the committed release in the production root; run the read-only probe before any restart.
+- [x] Activate, verify Tunnel health and the installed launcher, then check the connected Obsidian app if available. Record any end-to-end verification that remains unavailable.
 
 ## Review focus
 
@@ -31,4 +31,4 @@
 
 - Full regression suite: 272 passed on 2026-09-22.
 - Independent review found and rechecked fixes for launcher probes using an unprepared interpreter and interrupted source extraction blocking retries. Two regression tests reproduce both cases.
-- Production preparation and activation remain below as separate operational checks.
+- Production preparation, activation, installed-launcher verification, and the remote connector call completed successfully. See [the deployment record](../../deployments/2026-09-22.md).
