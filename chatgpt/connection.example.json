@@ -1,0 +1,10 @@
+{
+  "vault": "/absolute/path/to/vault",
+  "env": {
+    "OBSIDIAN_API_KEY": "REPLACE_LOCALLY",
+    "OBSIDIAN_HOST": "127.0.0.1",
+    "OBSIDIAN_PORT": "27124",
+    "OBSIDIAN_PROTOCOL": "https",
+    "REQUESTS_CA_BUNDLE": "/absolute/path/to/obsidian-ca.crt"
+  }
+}

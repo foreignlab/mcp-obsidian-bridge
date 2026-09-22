@@ -1,0 +1,30 @@
+# Local credentials and runtime data (at any depth)
+connection.json
+.env
+.env.*
+!.env.example
+runtime-api-key
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+tunnel/
+*.log
+*.pid
+*-health.url
+# Python and development state
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+.coverage
+.coverage.*
+htmlcov/
+.worktrees/
+.DS_Store
