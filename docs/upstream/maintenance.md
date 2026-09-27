@@ -24,26 +24,24 @@ to those files in later upstream updates need an explicit integration decision.
 
 ## Updating from upstream
 
-Start from a clean `main`, fetch `origin` and `upstream`, and create an update
-branch. Inspect the incoming changes before merging `upstream/main` on that
-branch; resolve conflicts while retaining the downstream behavior described above.
+Create an update branch in a dedicated worktree from `origin/main`, following
+[the development workflow](../development.md#scope-and-worktrees). In that
+worktree, fetch `upstream` and inspect the incoming changes before merging
+`upstream/main`; resolve conflicts while retaining the downstream behavior described above.
 Do not rebase or rewrite published commits: deployed release IDs and the archive
 branch remain valid history.
 
 ```sh
-git fetch origin
 git fetch upstream
-git switch main
-git pull --ff-only origin main
-git switch -c maintenance/upstream-YYYY-MM-DD
 git log --oneline HEAD..upstream/main
 git diff HEAD...upstream/main
 git merge upstream/main
 uv sync --locked --group dev
-uv run --locked pytest -q
+uv run --locked --no-sync pytest -q
 ```
 
-Use a unique date or suffix for the update branch. Inspect dependency changes
+Use a name such as `maintenance/upstream-YYYY-MM-DD` with a unique suffix as needed.
+Inspect dependency changes
 and validate lockfile consistency; retain TLS certificate verification and the
 gateway's path restrictions. Tests use temporary files and local HTTP/HTTPS
 fixtures, so the test runner needs loopback socket access.
@@ -52,8 +50,8 @@ Run read-only compatibility checks against the installed REST plugin for affecte
 read tools. Validate write changes with disposable notes in an allowed folder.
 Unit tests alone do not establish compatibility with the real REST API. Review
 the resulting changes in this fork before merging; deploy separately using the
-[deployment runbook](../deployment.md). Configure PRs to target this fork rather
-than the original project unless the change is intentionally being contributed.
+[deployment runbook](../deployment.md). Target PRs at this fork. Posting an issue,
+PR, comment, or push upstream requires an explicit user request.
 
 ## Migration record: 2026-09-27
 
