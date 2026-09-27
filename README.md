@@ -1,209 +1,87 @@
-# MCP server for Obsidian
+# obsidian-chatgpt-mcp
 
-MCP server to interact with Obsidian via the Local REST API community plugin.
+Shared Obsidian MCP client and the restricted ChatGPT gateway used with OpenAI Secure MCP Tunnel.
 
-<a href="https://glama.ai/mcp/servers/3wko1bhuek"><img width="380" height="200" src="https://glama.ai/mcp/servers/3wko1bhuek/badge" alt="server for Obsidian MCP server" /></a>
+The source project is named `obsidian-chatgpt-mcp`, matching the deployed
+gateway directory. The shared Python distribution and command retain the
+upstream name `mcp-obsidian`; the import package remains `mcp_obsidian`.
 
-## Components
+## Layout
 
-### Tools
+- `src/mcp_obsidian/`: TLS-verified client and MCP tools, used by multiple clients.
+- `tests/`: shared client regression tests, including TLS verification.
+- `chatgpt/`: ChatGPT gateway, path policy, existing deployment launcher, key-entry helper, and gateway tests.
+- `docs/upstream/README.md`: original upstream documentation; its examples are historical, not deployment instructions for the restricted gateway.
+- `docs/investigations/`: incident findings and outstanding fixes.
+- `LOCAL_TLS_PATCH.md`: local TLS patch provenance.
 
-The server implements multiple tools to interact with Obsidian:
-
-- list_files_in_vault: Lists all files and directories in the root directory of your Obsidian vault
-- list_files_in_dir: Lists all files and directories in a specific Obsidian directory
-- get_file_contents: Return the content of a single file in your vault.
-- search: Search for documents matching a specified text query across all files in the vault
-- patch_content: Insert content into an existing note relative to a heading, block reference, or frontmatter field.
-- append_content: Append content to a new or existing file in the vault.
-- delete_file: Delete a file or directory from your vault.
-
-### Example prompts
-
-Its good to first instruct Claude to use Obsidian. Then it will always call the tool.
-
-The use prompts like this:
-- Get the contents of the last architecture call note and summarize them
-- Search for all files where Azure CosmosDb is mentioned and quickly explain to me the context in which it is mentioned
-- Summarize the last meeting notes and put them into a new note 'summary meeting.md'. Add an introduction so that I can send it via email.
-
-## Requirements
-
-- Python >= 3.11
-- `mcp` Python SDK `>=1.1.0,<2.0.0` (pinned in `pyproject.toml`). `mcp-obsidian` currently registers its tool handlers via the `mcp` 1.x low-level `Server` API (`@app.list_tools()` / `@app.call_tool()`), which was removed in `mcp` 2.0. Installing with an unconstrained `mcp>=2.0` will crash at import with `AttributeError: 'Server' object has no attribute 'list_tools'`.
-
-## Configuration
-
-### Obsidian REST API Key
-
-There are two ways to configure the environment with the Obsidian REST API Key. 
-
-1. Add to server config (preferred)
-
-```json
-{
-  "mcp-obsidian": {
-    "command": "uvx",
-    "args": [
-      "mcp-obsidian"
-    ],
-    "env": {
-      "OBSIDIAN_API_KEY": "<your_api_key_here>",
-      "OBSIDIAN_HOST": "<your_obsidian_host>",
-      "OBSIDIAN_PORT": "<your_obsidian_port>"
-    }
-  }
-}
-```
-Sometimes Claude has issues detecting the location of uv / uvx. You can use `which uvx` to find and paste the full path in above config in such cases.
-
-2. Create a `.env` file in the working directory with the following required variables:
-
-```
-OBSIDIAN_API_KEY=your_api_key_here
-OBSIDIAN_HOST=your_obsidian_host
-OBSIDIAN_PORT=your_obsidian_port
-```
-
-Note:
-- You can find the API key in the Obsidian plugin config
-- Default port is 27124 if not specified
-- Default host is 127.0.0.1 if not specified
-
-## Quickstart
-
-### Install
-
-#### Obsidian REST API
-
-You need the Obsidian REST API community plugin running: https://github.com/coddingtonbear/obsidian-local-rest-api
-
-Install and enable it in the settings and copy the api key.
-
-#### Claude Desktop
-
-On MacOS: `~/Library/Application\ Support/Claude/claude_desktop_config.json`
-
-On Windows: `%APPDATA%/Claude/claude_desktop_config.json`
-
-<details>
-  <summary>Development/Unpublished Servers Configuration</summary>
-  
-```json
-{
-  "mcpServers": {
-    "mcp-obsidian": {
-      "command": "uv",
-      "args": [
-        "--directory",
-        "<dir_to>/mcp-obsidian",
-        "run",
-        "mcp-obsidian"
-      ],
-      "env": {
-        "OBSIDIAN_API_KEY": "<your_api_key_here>",
-        "OBSIDIAN_HOST": "<your_obsidian_host>",
-        "OBSIDIAN_PORT": "<your_obsidian_port>"
-      }
-    }
-  }
-}
-```
-</details>
-
-<details>
-  <summary>Published Servers Configuration</summary>
-  
-```json
-{
-  "mcpServers": {
-    "mcp-obsidian": {
-      "command": "uvx",
-      "args": [
-        "mcp-obsidian"
-      ],
-      "env": {
-        "OBSIDIAN_API_KEY": "<YOUR_OBSIDIAN_API_KEY>",
-        "OBSIDIAN_HOST": "<your_obsidian_host>",
-        "OBSIDIAN_PORT": "<your_obsidian_port>"
-      }
-    }
-  }
-}
-```
-</details>
-
-## Docker
-
-You can run the server in a container instead of installing `uv`/Python locally.
-
-1. Copy `.env.example` to `.env` and fill in your Obsidian REST API key:
-```bash
-cp .env.example .env
-```
-By default `OBSIDIAN_HOST` is set to `host.docker.internal`, which resolves to
-your host machine from inside the container (works on Linux, Mac and Windows).
-
-2. Build the image:
-```bash
-docker compose build
-```
-
-3. Point your MCP client at the container. Since MCP speaks JSON-RPC over
-stdio, the client must run it with stdin attached and no pseudo-TTY — use
-`docker compose run --rm -T`, not `docker compose up`:
-
-```json
-{
-  "mcpServers": {
-    "mcp-obsidian": {
-      "command": "docker",
-      "args": [
-        "compose",
-        "-f",
-        "<dir_to>/mcp-obsidian/docker-compose.yml",
-        "run",
-        "--rm",
-        "-T",
-        "mcp-obsidian"
-      ]
-    }
-  }
-}
-```
-
-You can also run it manually to sanity-check the container starts:
-```bash
-docker compose run --rm -T mcp-obsidian
-```
-(it will sit waiting for a JSON-RPC message on stdin; Ctrl+C to exit)
+The shared client derives from [MarkusPfundstein/mcp-obsidian](https://github.com/MarkusPfundstein/mcp-obsidian), commit `32285e9ac07049a8a23ea7d7903603a3e48a1bf7`. Its MIT license is retained in `LICENSE`. The local snapshot also includes existing functional changes and regression tests; it is not a pristine upstream checkout.
 
 ## Development
 
-### Building
+Python 3.11+ and uv are required. From this repository:
 
-To prepare the package for distribution:
-
-1. Sync dependencies and update lockfile:
-```bash
-uv sync
+```sh
+uv sync --locked --group dev
+uv run --locked pytest
 ```
 
-### Debugging
+The project pins MCP 1.29.0 and requests 2.34.2 to match the deployed launcher and explicitly declares the gateway's jsonschema dependency. The original client's stale lock (MCP 1.1.0 / requests 2.32.3) is replaced with a lock resolved for this project.
 
-Since MCP servers run over stdio, debugging can be challenging. For the best debugging
-experience, we strongly recommend using the [MCP Inspector](https://github.com/modelcontextprotocol/inspector).
+Tests use mocks, temporary files, and local HTTP/HTTPS fixtures. They do not write to the real Vault. They verify policy and client behavior; passing tests do not establish compatibility with every deployed REST API version.
 
-You can launch the MCP Inspector via [`npm`](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm) with this command:
+## Deployment status
 
-```bash
-npx @modelcontextprotocol/inspector uv --directory /path/to/mcp-obsidian run mcp-obsidian
+This checkout is the source repository. Runtime installations remain at:
+
+- `~/.local/share/mcp-obsidian-tls/`
+- `~/.local/share/obsidian-chatgpt-mcp/`
+
+On 2026-09-22 the ChatGPT runtime was switched to release `1b5b818`, with a
+dedicated environment under `releases/` and a managed `current` pointer. The
+shared installation used by other clients remains unchanged. See the
+[deployment verification record](docs/deployments/2026-09-22.md).
+
+`chatgpt/launch.sh` is the historical launcher snapshot; deployment generates
+the managed runtime launcher. Copying that historical file is not a deployment.
+
+Credentials, trusted CA certificates, downloaded tunnel binaries, profiles, logs, and PID files stay outside Git. `chatgpt/connection.example.json` shows the configuration shape with placeholders. Never copy live `connection.json` or runtime keys into tracked files.
+
+Use [the deployment runbook](docs/deployment.md) to prepare an isolated,
+commit-addressed ChatGPT release, activate it, or restore the previous version.
+Editing this checkout does not update the running service. The ChatGPT release
+has its own locked environment; the other clients' shared installation stays separate.
+
+## Recent Changes compatibility
+
+`obsidian_get_recent_changes` uses a fixed internal JSONLogic query supported by
+Local REST API 5.1.0. It returns Markdown notes modified since local midnight
+`days` calendar days ago, inclusive, using the MCP process's timezone. Run the
+client in the same timezone as Obsidian to preserve the previous DQL boundary.
+Results are sorted by modification time descending, then by filename for ties,
+before applying `limit`.
+
+The former table response shape is preserved:
+
+```json
+[{"filename": "example.md", "result": {"file.mtime": "2026-09-22T09:00:00.123+09:00"}}]
 ```
 
-Upon launching, the Inspector will display a URL that you can access in your browser to begin debugging.
+The query requests timestamps only; it does not return note content or expose
+arbitrary JSONLogic through the ChatGPT gateway. TLS verification and existing
+write restrictions remain enabled.
 
-You can also watch the server logs with this command:
+The source fix passed 224 tests and read-only HTTPS checks against the installed
+REST API 5.1.0 on 2026-09-22, both directly and through the source gateway's tool
+dispatcher. The checks were not made through ChatGPT or the running Tunnel.
+See [the investigation and validation record](docs/investigations/2026-09-22.md).
 
-```bash
-tail -n 20 -f ~/Library/Logs/Claude/mcp-server-mcp-obsidian.log
-```
+The subsequent production deployment passed 272 tests, the installed-launcher
+probe, and a Recent Changes call through the connected Obsidian app/Tunnel.
+The remote call was correlated with a successful diagnostic event from the
+Tunnel's gateway process; see the deployment record above.
+
+Content-free diagnostic logging is implemented in the gateway, with bounded
+file retention under the managed launcher; see [the diagnostics runbook](docs/diagnostics.md).
+Check `scripts/deploy.py status` for the locally active release. Local tests
+and source changes alone do not establish a successful production cutover.
