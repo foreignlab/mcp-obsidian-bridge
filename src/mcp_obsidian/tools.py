@@ -695,7 +695,7 @@ class RecentChangesToolHandler(ToolHandler):
     def get_tool_description(self):
         return Tool(
             name=self.name,
-            description="Get recently modified files in the vault.",
+            description="Get recently modified Markdown files in the vault, newest first. Returns filename and result['file.mtime'] as a timezone-aware ISO 8601 timestamp.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -708,7 +708,7 @@ class RecentChangesToolHandler(ToolHandler):
                     },
                     "days": {
                         "type": "integer",
-                        "description": "Only include files modified within this many days (default: 90)",
+                        "description": "Include files modified since local midnight N calendar days ago, inclusive, using the MCP server's timezone (default: 90)",
                         "minimum": 1,
                         "default": 90
                     }

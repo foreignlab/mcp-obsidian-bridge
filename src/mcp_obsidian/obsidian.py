@@ -2,7 +2,9 @@ import re
 import requests
 import urllib.parse
 import os
+from datetime import datetime, timedelta
 from typing import Any
+from .request_diagnostics import report_request_failure
 
 class Obsidian():
     def __init__(
@@ -11,7 +13,7 @@ class Obsidian():
             protocol: str = os.getenv('OBSIDIAN_PROTOCOL', 'https').lower(),
             host: str = str(os.getenv('OBSIDIAN_HOST', '127.0.0.1')),
             port: int = int(os.getenv('OBSIDIAN_PORT', '27124')),
-            verify_ssl: bool = False,
+            verify_ssl: bool = True,
         ):
         self.api_key = api_key
         
@@ -38,6 +40,7 @@ class Obsidian():
         try:
             return f()
         except requests.HTTPError as e:
+            report_request_failure(e)
             error_data = {}
             if e.response is not None and e.response.content:
                 try:
@@ -50,6 +53,7 @@ class Obsidian():
             message = error_data.get('message', '<unknown>')
             raise Exception(f"Error {code}: {message}")
         except requests.exceptions.RequestException as e:
+            report_request_failure(e)
             raise Exception(f"Request failed: {str(e)}")
 
     def list_files_in_vault(self) -> Any:
@@ -343,44 +347,41 @@ class Obsidian():
         return self._safe_call(call_fn)
     
     def get_recent_changes(self, limit: int = 10, days: int = 90) -> Any:
-        """Get recently modified files in the vault.
-        
+        """Get recently modified Markdown files, newest first.
+
         Args:
             limit: Maximum number of files to return (default: 10)
-            days: Only include files modified within this many days (default: 90)
-            
-        Returns:
-            List of recently modified files with metadata
-        """
-        # Build the DQL query
-        query_lines = [
-            "TABLE file.mtime",
-            f"WHERE file.mtime >= date(today) - dur({days} days)",
-            "SORT file.mtime DESC",
-            f"LIMIT {limit}"
-        ]
-        
-        # Join with proper DQL line breaks
-        dql_query = "\n".join(query_lines)
-        
-        # Make the request to search endpoint
-        url = f"{self.get_base_url()}/search/"
-        headers = self._get_headers() | {
-            'Content-Type': 'application/vnd.olrapi.dataview.dql+txt'
-        }
-        
-        def call_fn():
-            response = requests.post(
-                url,
-                headers=headers,
-                data=dql_query.encode('utf-8'),
-                verify=self.verify_ssl,
-                timeout=self.timeout
-            )
-            response.raise_for_status()
-            return response.json()
+            days: Include files modified since local midnight this many
+                calendar days ago, inclusive (default: 90).
 
-        return self._safe_call(call_fn)
+        Returns:
+            List of filename/result objects. result["file.mtime"] is an
+            ISO 8601 timestamp with milliseconds and a local UTC offset,
+            preserving the former Dataview TABLE response shape.
+        """
+        # Subtract calendar days before resolving the local UTC offset so a
+        # daylight-saving transition does not shift the midnight boundary.
+        cutoff = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=days)
+        query = {
+            "if": [
+                {">=": [{"var": "stat.mtime"}, int(cutoff.timestamp() * 1000)]},
+                {"var": "stat.mtime"},
+                False,
+            ]
+        }
+        # JSONLogic returns the matching timestamps, but does not sort or limit.
+        results = self.search_json(query)
+        results = sorted(results, key=lambda row: (-row["result"], row["filename"]))
+        return [
+            {
+                "filename": row["filename"],
+                "result": {
+                    "file.mtime": datetime.fromtimestamp(row["result"] / 1000)
+                    .astimezone().isoformat(timespec="milliseconds")
+                },
+            }
+            for row in results[:limit]
+        ]
 
 
 _HEADING_RE = re.compile(r"^\s{0,3}(#{1,6})\s+(.+?)\s*$")
