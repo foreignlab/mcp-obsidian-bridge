@@ -176,6 +176,9 @@ class Obsidian():
         # 'text/markdown' form. We still send the body as utf-8 bytes so the
         # encoding is unambiguous on the wire.
         headers = self._get_headers() | {
+            # Local REST API 5.x requires explicit opt-in to this legacy format.
+            # Migrate to format 2 before plugin 6.0 removes format 1.
+            'Markdown-Patch-Version': '1',
             'Content-Type': 'text/markdown',
             'Operation': operation,
             'Target-Type': target_type,
