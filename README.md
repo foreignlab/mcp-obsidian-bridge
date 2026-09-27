@@ -1,10 +1,13 @@
-# obsidian-chatgpt-mcp
+# mcp-obsidian-bridge
 
-Shared Obsidian MCP client and the restricted ChatGPT gateway used with OpenAI Secure MCP Tunnel.
+An MCP bridge connecting AI clients to Obsidian. It includes a shared
+TLS-verified client and a restricted ChatGPT gateway used with OpenAI Secure MCP
+Tunnel, plus diagnostic logging and deployment tooling.
 
-The source project is named `obsidian-chatgpt-mcp`, matching the deployed
-gateway directory. The shared Python distribution and command retain the
-upstream name `mcp-obsidian`; the import package remains `mcp_obsidian`.
+This is a personal-use fork; general-purpose support is not provided.
+The source repository is named `mcp-obsidian-bridge`. Existing runtime directories
+retain their deployment names. The shared Python distribution and command retain
+the upstream name `mcp-obsidian`; the import package remains `mcp_obsidian`.
 
 ## Layout
 

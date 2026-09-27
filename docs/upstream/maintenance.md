@@ -2,7 +2,7 @@
 
 ## Repository boundaries
 
-- `origin`: https://github.com/foreignlab/obsidian-chatgpt-mcp
+- `origin`: https://github.com/foreignlab/mcp-obsidian-bridge
 - `upstream`: https://github.com/MarkusPfundstein/mcp-obsidian
 - `main`: reviewed downstream source, including upstream ancestry.
 - `archive/pre-fork-20260927`: original local tip, kept for historical reference.
@@ -76,9 +76,11 @@ git merge-base --is-ancestor ff21e7d 6bc001d9
 git cat-file -e e7af3f9cfbbb1d559c179727cf060af9c92aad34^{commit}
 ```
 
-The pre-migration suite passed all 307 tests. The migration does not activate a
-release, change runtime settings, or fix the existing PATCH and periodic-note
-compatibility gaps. Those are separate follow-up changes.
+Both the pre-migration and migrated suites passed all 307 tests. Independent
+review verified tree equivalence and ancestry with no actionable findings.
+The migration does not activate a release, change runtime settings, or fix the
+existing PATCH and periodic-note compatibility gaps. Those are separate
+follow-up changes.
 
 To inspect the previous source without changing the runtime or the main checkout:
 
