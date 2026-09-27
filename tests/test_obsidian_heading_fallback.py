@@ -110,6 +110,8 @@ def test_bare_heading_unique_match_autoqualifies():
 
         assert mock_patch.call_count == 2
         mock_get.assert_called_once_with("f.md")
+        for call in mock_patch.call_args_list:
+            assert call.kwargs["headers"]["Markdown-Patch-Version"] == "1"
         # Second call must carry the qualified target (URL-quoted)
         second_headers = mock_patch.call_args_list[1].kwargs["headers"]
         # urllib.parse.quote(...) escapes the colons too; check the underlying decoded value
