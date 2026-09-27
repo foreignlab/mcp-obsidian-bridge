@@ -27,4 +27,5 @@ dist/
 .coverage.*
 htmlcov/
 .worktrees/
+CLAUDE.local.md
 .DS_Store
