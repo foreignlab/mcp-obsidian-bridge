@@ -37,7 +37,15 @@ on `PATH`. Windows is outside the tested scope. Install and test with:
 ```sh
 uv sync --locked --group dev
 uv run --locked --no-sync pytest -q
+```
+
+Before review, stage intended new files so they participate in the index check.
+Check unstaged changes, the index, and the committed branch diff separately:
+
+```sh
 git diff --check
+git diff --cached --check
+git diff --check origin/main...HEAD
 ```
 
 For code, dependencies, or test changes, run focused tests while working and the
