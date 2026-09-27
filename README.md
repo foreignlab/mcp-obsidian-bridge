@@ -15,7 +15,14 @@ upstream name `mcp-obsidian`; the import package remains `mcp_obsidian`.
 - `docs/investigations/`: incident findings and outstanding fixes.
 - `LOCAL_TLS_PATCH.md`: local TLS patch provenance.
 
-The shared client derives from [MarkusPfundstein/mcp-obsidian](https://github.com/MarkusPfundstein/mcp-obsidian), commit `32285e9ac07049a8a23ea7d7903603a3e48a1bf7`. Its MIT license is retained in `LICENSE`. The local snapshot also includes existing functional changes and regression tests; it is not a pristine upstream checkout.
+This repository is maintained as a fork of
+[MarkusPfundstein/mcp-obsidian](https://github.com/MarkusPfundstein/mcp-obsidian).
+The original local import used commit `32285e9ac07049a8a23ea7d7903603a3e48a1bf7`;
+the fork migration incorporates upstream history through
+`5ee0b84fa8319fd2fdf0db0ee1febb065e712a15` and preserves the original local
+commits, including deployed release IDs. Its MIT license is retained in `LICENSE`.
+See [fork maintenance](docs/upstream/maintenance.md) for the downstream changes,
+upstream update procedure, and migration verification.
 
 ## Development
 
