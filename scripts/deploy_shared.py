@@ -110,9 +110,11 @@ class SharedDeployment:
             yield
 
     def _run(self, args, *, timeout=120):
+        env = {key: value for key, value in clean_environment({}).items()
+               if not key.startswith('GIT_')}
         try:
             result = subprocess.run([str(a) for a in args], cwd=self.repo,
-                env=clean_environment({}), capture_output=True, timeout=timeout)
+                env=env, capture_output=True, timeout=timeout)
         except (OSError, subprocess.TimeoutExpired):
             raise SharedRuntimeError('Deployment subprocess failed or timed out; output suppressed') from None
         if result.returncode:
@@ -292,7 +294,7 @@ print(json.dumps(files))
         command = shlex.join([legacy['command'], *legacy['args']])
         return f'''#!/bin/sh
 set -eu
-for variable in $(/usr/bin/env | /usr/bin/awk -F= '$1 ~ /^PYTHON[A-Za-z0-9_]*$/ {{print $1}}'); do
+for variable in $(/usr/bin/env | /usr/bin/awk -F= '$1 ~ /^(PYTHON[A-Za-z0-9_]*|UV_[A-Za-z0-9_]*)$/ {{print $1}}'); do
     unset "$variable"
 done
 unset __PYVENV_LAUNCHER__ VIRTUAL_ENV

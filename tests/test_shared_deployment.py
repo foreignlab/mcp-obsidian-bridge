@@ -583,3 +583,41 @@ def test_changed_executable_wrapper_invalidates_prepared_release(shared_runtime,
         app._manifest(revision)
     with pytest.raises(deployment.SharedRuntimeError, match='entry point'):
         app.prepare(revision)
+
+
+@pytest.mark.parametrize('override', ['repository', 'work-tree', 'index'])
+def test_git_overrides_cannot_redirect_preparation(shared_runtime, tmp_path, monkeypatch, override):
+    app = shared_runtime
+    expected = git(app.repo, 'rev-parse', 'HEAD')
+    foreign = tmp_path / 'foreign-repository'
+    shutil.copytree(app.repo, foreign)
+    (foreign / 'src/mcp_obsidian/__init__.py').write_text('VERSION = "foreign"\n')
+    git(foreign, 'commit', '-qam', 'foreign source')
+    if override == 'repository':
+        monkeypatch.setenv('GIT_DIR', str(foreign / '.git'))
+        monkeypatch.setenv('GIT_WORK_TREE', str(foreign))
+    elif override == 'work-tree':
+        monkeypatch.setenv('GIT_WORK_TREE', str(foreign))
+    else:
+        monkeypatch.setenv('GIT_INDEX_FILE', str(foreign / '.git/index'))
+    revision = app.prepare('HEAD')
+    assert revision == expected
+    release, _ = app._manifest(revision)
+    assert (release / 'src/mcp_obsidian/__init__.py').read_text() == 'VERSION = 1\n'
+
+
+def test_legacy_launcher_uses_same_uv_environment_as_probe(shared_runtime):
+    import os
+    app = shared_runtime
+    legacy = app.root / 'legacy-command'
+    legacy.write_text('#!/bin/sh\nprintf "%s|%s|%s\\n" '
+        '"${UV_INDEX-unset}" "${UV_CACHE_DIR-unset}" "${UV_PYTHON-unset}"\n')
+    revision = app.prepare('HEAD')
+    app.activate(revision)
+    app.rollback()
+    profile = app._profile()
+    overrides = {'UV_INDEX': 'wrong-index', 'UV_CACHE_DIR': '/wrong-cache', 'UV_PYTHON': '/wrong-python'}
+    profile.env.update(overrides)
+    assert not set(overrides) & deployment.clean_environment(profile.env).keys()
+    env = {**os.environ, **profile.env}
+    assert subprocess.check_output([str(app.root / 'launch.sh')], env=env) == b'unset|unset|unset\n'
