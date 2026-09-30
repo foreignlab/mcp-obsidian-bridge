@@ -164,8 +164,16 @@ class SharedDeployment:
         cwd = profile.cwd or self.legacy_cwd
         if not cwd or not cwd.is_dir():
             raise SharedRuntimeError('Explicit legacy working directory is required')
-        command = profile.command if Path(profile.command).is_absolute() else shutil.which(profile.command)
-        if not command:
+        if Path(profile.command).is_absolute():
+            command = profile.command
+        elif '/' in profile.command:
+            command = str(cwd / profile.command)
+        else:
+            search_path = clean_environment(profile.env).get('PATH', os.defpath)
+            paths = [str(Path(part)) if Path(part).is_absolute() else str(cwd / (part or '.'))
+                     for part in search_path.split(os.pathsep)]
+            command = shutil.which(profile.command, path=os.pathsep.join(paths))
+        if not command or not Path(command).is_file() or not os.access(command, os.X_OK):
             raise SharedRuntimeError('Legacy executable is unavailable')
         write_json(self.control / 'legacy.json', {'command': command, 'args': profile.args,
             'cwd': str(cwd), 'files': self._legacy_inventory()})
@@ -203,7 +211,9 @@ print(json.dumps(files))
                     if name.startswith('src/mcp_obsidian/') and name.endswith('.py')}
         if not expected or self._installed_inventory(release) != expected:
             raise SharedRuntimeError('Installed package integrity verification failed')
-        if not os.access(release / '.venv/bin/mcp-obsidian', os.X_OK):
+        entrypoint = release / '.venv/bin/mcp-obsidian'
+        if (not os.access(entrypoint, os.X_OK) or entrypoint.is_symlink()
+                or manifest.get('entrypoint') != file_info(entrypoint)):
             raise SharedRuntimeError('Installed entry point integrity verification failed')
 
     def _manifest(self, revision, *, require_prepared=True):
@@ -268,6 +278,7 @@ print(json.dumps(files))
                     sync_directory(release.parent)
             if manifest['status'] != 'prepared':
                 self._build(release)
+                manifest['entrypoint'] = file_info(release / '.venv/bin/mcp-obsidian')
             self._verify_installed(release, manifest)
             summary = self._probe(revision)
             manifest.update(status='prepared', prepared_at=datetime.now(timezone.utc).isoformat(), probe=summary)

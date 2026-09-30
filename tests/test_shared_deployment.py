@@ -368,9 +368,13 @@ def test_preflight_failure_never_creates_journal(shared_runtime, monkeypatch):
 
 def test_launcher_keeps_running_environment_after_selection_changes(shared_runtime, monkeypatch):
     app = shared_runtime
+    original_build = app._build
+    def build(release):
+        original_build(release)
+        entry = release / '.venv/bin/mcp-obsidian'
+        entry.write_text('#!/bin/sh\npwd\nread value\nprintf "%s\\n" "$value"\n')
+    monkeypatch.setattr(app, '_build', build)
     first = app.prepare('HEAD')
-    entry = app.root / 'releases' / first / '.venv/bin/mcp-obsidian'
-    entry.write_text('#!/bin/sh\npwd\nread value\nprintf "%s\\n" "$value"\n')
     app.activate(first)
     monkeypatch.setenv('PYTHONPATH', '/wrong')
     monkeypatch.setenv('UV_PROJECT_ENVIRONMENT', '/wrong')
@@ -497,15 +501,18 @@ for line in sys.stdin:
 
 
 @pytest.mark.parametrize('variable', ['PYTHONEXECUTABLE', '__PYVENV_LAUNCHER__', 'PYTHONPLATLIBDIR'])
-def test_real_launcher_ignores_python_startup_overrides(shared_runtime, tmp_path, variable):
+def test_real_launcher_ignores_python_startup_overrides(shared_runtime, tmp_path, monkeypatch, variable):
     import venv
     app = shared_runtime
+    def build(release):
+        python, _ = real_package_environment(release)
+        entry = release / '.venv/bin/mcp-obsidian'
+        write_python_entry(entry, python, 'import json, sys\n'
+            + 'print(json.dumps({"prefix": sys.prefix, "executable": sys.executable}))\n')
+    monkeypatch.setattr(app, '_build', build)
     revision = app.prepare('HEAD')
     release = app.root / 'releases' / revision
-    python, _ = real_package_environment(release)
-    entry = release / '.venv/bin/mcp-obsidian'
-    write_python_entry(entry, python, 'import json, sys\n'
-        + 'print(json.dumps({"prefix": sys.prefix, "executable": sys.executable}))\n')
+    python = release / '.venv/bin/python'
     app.activate(revision)
     other = tmp_path / 'other-environment'
     venv.create(other, with_pip=False, symlinks=True)
@@ -531,3 +538,48 @@ def test_symlinked_runtime_location_can_activate_and_rollback(shared_runtime, tm
     assert app.status()['integrity'] == 'verified'
     app.rollback()
     assert app.status()['selected'] == 'legacy' and app.status()['integrity'] == 'verified'
+
+
+@pytest.mark.parametrize('route', ['cwd-relative', 'profile-path', 'relative-profile-path'])
+def test_legacy_command_resolves_in_client_context(shared_runtime, monkeypatch, tmp_path, route):
+    app = shared_runtime
+    client_bin = app.root / 'client-bin'
+    ambient_bin = tmp_path / 'ambient-bin'
+    client_bin.mkdir()
+    ambient_bin.mkdir()
+    for directory, label in [(client_bin, 'client'), (ambient_bin, 'ambient')]:
+        entry = directory / 'original-server'
+        entry.write_text('#!/bin/sh\nprintf "' + label + '\\n"\n')
+        entry.chmod(0o700)
+    data = json.loads(app.client_config.read_text())
+    profile = data['mcpServers']['obsidian']
+    profile['cwd'] = str(app.root)
+    profile['command'] = './client-bin/original-server' if route == 'cwd-relative' else 'original-server'
+    if route != 'cwd-relative':
+        profile['env']['PATH'] = str(client_bin) if route == 'profile-path' else 'client-bin'
+    app.client_config.write_text(json.dumps(data))
+    monkeypatch.setenv('PATH', str(ambient_bin))
+    monkeypatch.chdir(tmp_path)
+    with app._lock():
+        app._record_legacy()
+    record = json.loads((app.control / 'legacy.json').read_text())
+    assert Path(record['command']) == client_bin / 'original-server'
+    launcher = app.root / 'launch.sh'
+    launcher.write_bytes(app._launcher())
+    launcher.chmod(0o700)
+    assert subprocess.check_output([str(launcher)]) == b'client\n'
+
+
+@pytest.mark.parametrize('replacement', ['', '#!/bin/sh\nprintf "different\\n"\n'])
+def test_changed_executable_wrapper_invalidates_prepared_release(shared_runtime, replacement):
+    app = shared_runtime
+    revision = app.prepare('HEAD')
+    app.activate(revision)
+    entry = app.root / 'releases' / revision / '.venv/bin/mcp-obsidian'
+    entry.write_text(replacement)
+    assert entry.stat().st_mode & 0o111
+    assert app.status()['integrity'] == 'invalid'
+    with pytest.raises(deployment.SharedRuntimeError, match='entry point'):
+        app._manifest(revision)
+    with pytest.raises(deployment.SharedRuntimeError, match='entry point'):
+        app.prepare(revision)
