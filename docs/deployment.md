@@ -5,6 +5,10 @@ virtual environment; the shared `~/.local/share/mcp-obsidian-tls` installation
 used by other clients is not modified. Keep the working checkout available
 for deployment and recovery commands.
 
+The [source release policy](releases.md) defines date tags and GitHub Releases.
+This runbook identifies runtime releases by full source commit SHA; record that
+SHA and the source tag, when available, for each deployment.
+
 ## Layout
 
 Under `~/.local/share/obsidian-chatgpt-mcp/`:
