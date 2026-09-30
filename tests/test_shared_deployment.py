@@ -215,7 +215,7 @@ def test_real_distribution_metadata_reads_installed_code(shared_runtime):
     app = shared_runtime
     revision = app.prepare('HEAD')
     release = app.root / 'releases' / revision
-    venv.create(release / '.venv', clear=True, with_pip=False)
+    venv.create(release / '.venv', clear=True, with_pip=False, symlinks=True)
     python = release / '.venv/bin/python'
     site = Path(subprocess.check_output([str(python), '-I', '-c',
         'import sysconfig; print(sysconfig.get_paths()["purelib"])']).decode().strip())
