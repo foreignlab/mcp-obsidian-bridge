@@ -58,7 +58,7 @@ Keep the ChatGPT deployment implementation and gateway policy unchanged. The sou
 - `async probe(profile: ClientProfile, *, command: list[str], cwd: Path) -> dict`: return `ok`, `tools`, `vault_entries`, and `recent_changes` counts.
 - Probe `main(argv: list[str] | None = None) -> int`: required `--client-config`/`--server`; exactly one of `--executable PATH --cwd PATH`, `--launcher PATH`, or `--launch-record PATH`. Records contain only legacy command/args/cwd; connection values come from the selected profile.
 
-- [ ] **Step 1: Write profile/probe regression tests.** Use sentinel secrets and synthetic note text; fake SDK results for failure cases and a synthetic stdio MCP server for the successful transport path. Exact contracts include:
+- [x] **Step 1: Write profile/probe regression tests.** Use sentinel secrets and synthetic note text; fake SDK results for failure cases and a synthetic stdio MCP server for the successful transport path. Exact contracts include:
 
 ```python
 def test_named_profile_overrides_ambient_connection(profile_file, monkeypatch):
@@ -72,10 +72,10 @@ def test_named_profile_overrides_ambient_connection(profile_file, monkeypatch):
 
 Parameterize both configuration formats, missing server, malformed field types, HTTP, missing CA, missing key, and absent `cwd`. For probe tests require exactly the 15 shared tools currently registered in `src/mcp_obsidian/server.py`, reject duplicates/missing/extra tools, and require only listing and Recent Changes calls. Reuse `probe_gateway.validate_recent`'s boundary/order validation without changing the gateway. Check empty successful results, malformed JSON/structure, `isError`, timeout, and nested SDK exceptions; captured output must contain no sentinel key, synthetic path/content, or raw child stderr.
 
-- [ ] **Step 2: Run focused tests and confirm the missing implementation fails.** Run `uv run --locked --no-sync pytest -q tests/test_shared_connection.py tests/test_shared_probe.py`.
-- [ ] **Step 3: Implement the interfaces above.** Use `ClientSession` with a 15-second read timeout and an overall 45-second timeout; capture stderr in a private temporary stream. Derive subprocess connection values only from the selected entry. Report coarse errors and nonzero CLI status on any failed check.
-- [ ] **Step 4: Repeat the focused command; require every case to pass.** Run the synthetic transport test through a real subprocess, not only mocked SDK calls.
-- [ ] **Step 5: Commit the four files.** Message: `feat: add private shared-client profiles and read-only probe`.
+- [x] **Step 2: Run focused tests and confirm the missing implementation fails.** Run `uv run --locked --no-sync pytest -q tests/test_shared_connection.py tests/test_shared_probe.py`.
+- [x] **Step 3: Implement the interfaces above.** Use `ClientSession` with a 15-second read timeout and an overall 45-second timeout; capture stderr in a private temporary stream. Derive subprocess connection values only from the selected entry. Report coarse errors and nonzero CLI status on any failed check.
+- [x] **Step 4: Repeat the focused command; require every case to pass.** Run the synthetic transport test through a real subprocess, not only mocked SDK calls.
+- [x] **Step 5: Commit the four files.** Message: `feat: add private shared-client profiles and read-only probe`.
 
 ## Task 2: Commit-specific preparation, provenance, and legacy route
 
@@ -90,7 +90,7 @@ Parameterize both configuration formats, missing server, malformed field types, 
 - `status() -> dict`: read-only JSON with `selected`, `previous`, `pending`, and `integrity` (a coarse status, not private paths). Initial state is selected `legacy`, previous `None`.
 - Persist source manifest `{revision, status, files, prepared_at, probe}`; files map names to `{sha256, mode}`. Preserve legacy `{command, args, cwd, files}` privately and never replace it after client adoption.
 
-- [ ] **Step 1: Add preparation/provenance regressions with temporary repositories and injected builds.** Pin these outcomes:
+- [x] **Step 1: Add preparation/provenance regressions with temporary repositories and injected builds.** Pin these outcomes:
 
 ```python
 def test_prepare_preserves_legacy_and_does_not_select_candidate(shared_runtime):
@@ -106,10 +106,10 @@ def test_prepare_preserves_legacy_and_does_not_select_candidate(shared_runtime):
 
 Test tag resolution, dirty/untracked source rejection, unsafe archive entries (traversal, links, private runtime files), interrupted extraction/retry, failed build/probe with no route change, incomplete activation rejection, source tampering, stale/missing/extra installed package files, and inherited build overrides. Require explicit legacy cwd when neither profile nor operator supplies it. After updating the synthetic client entry to `launch.sh`, preparation must retain the original legacy argv/cwd and read fresh connection values. Check metadata modes, build-at-final-path, exact build flags, and no changes to legacy source or ChatGPT fixtures.
 
-- [ ] **Step 2: Run `uv run --locked --no-sync pytest -q tests/test_shared_deployment.py`; confirm failures before implementation.**
-- [ ] **Step 3: Implement preparation and read-only status.** Use `git rev-parse` with option termination and validate full SHA before archival. Stage the safe archive and manifest together, then build the final path; mark prepared only after installed-file identity and probe pass. Verify installed `mcp_obsidian` files by reading distribution metadata using the release interpreter without importing the server, and compare every package Python file to committed source. Capture raw build output and return fixed errors. Capture the legacy entry once, resolve an explicit cwd, and preserve its source/package metadata inventory.
-- [ ] **Step 4: Run preparation tests plus Task 1 tests; require all to pass.** Also exercise generated launchers using fake executable releases at paths containing spaces and verify no protocol stdout is added.
-- [ ] **Step 5: Commit the manager and tests.** Message: `feat: prepare verified shared-server environments by commit`.
+- [x] **Step 2: Run `uv run --locked --no-sync pytest -q tests/test_shared_deployment.py`; confirm failures before implementation.**
+- [x] **Step 3: Implement preparation and read-only status.** Use `git rev-parse` with option termination and validate full SHA before archival. Stage the safe archive and manifest together, then build the final path; mark prepared only after installed-file identity and probe pass. Verify installed `mcp_obsidian` files by reading distribution metadata using the release interpreter without importing the server, and compare every package Python file to committed source. Capture raw build output and return fixed errors. Capture the legacy entry once, resolve an explicit cwd, and preserve its source/package metadata inventory.
+- [x] **Step 4: Run preparation tests plus Task 1 tests; require all to pass.** Also exercise generated launchers using fake executable releases at paths containing spaces and verify no protocol stdout is added.
+- [x] **Step 5: Commit the manager and tests.** Message: `feat: prepare verified shared-server environments by commit`.
 
 ## Task 3: Journaled switching, CLI, and adoption runbook
 
@@ -123,7 +123,7 @@ Test tag resolution, dirty/untracked source rejection, unsafe archive entries (t
 - `main(argv: list[str] | None = None) -> int`: commands `prepare REVISION`, `activate FULL_SHA`, `rollback`, `recover`, `status`, `probe`; path/tool/config overrides precede the command. Every operation requiring a connection requires `--client-config` and `--server`; `status` does not.
 - State `{selected, previous}`; pending `{state, target, launcher, probe_revision}` preserves prior launcher existence/content/mode and pointer absence/target. Store launcher content safely in private JSON or a referenced private snapshot file. History contains timestamps, fixed event names, full SHAs/legacy, and coarse outcomes only.
 
-- [ ] **Step 1: Add transition and CLI regression tests.** Assert these recovery contracts:
+- [x] **Step 1: Add transition and CLI regression tests.** Assert these recovery contracts:
 
 ```python
 def test_failed_first_activation_restores_absent_launcher(shared_runtime, monkeypatch):
@@ -140,11 +140,11 @@ def test_failed_first_activation_restores_absent_launcher(shared_runtime, monkey
 
 Add success for first activation, legacy rollback, second managed revision/rollback, and actual launcher execution in each route. Test no previous target, modified legacy inventory, modified pointer/launcher, preflight failure, post-switch failure, and recovery-probe failure retaining the journal. Inject `KeyboardInterrupt` at pointer write, state write, history write, and pending removal; a subsequent `recover` must restore the snapshot without overwriting it. Exercise lock contention and pending-state refusal for preparation/activation/rollback. Ensure launcher processes keep the release resolved at startup when a pointer changes, ignore hostile Python/virtualenv/uv overrides in the managed route, and leave older client processes running. CLI tests require exact nonzero failure statuses and no sentinel data in stdout/stderr.
 
-- [ ] **Step 2: Run all three focused test modules and confirm new failures before implementation.**
-- [ ] **Step 3: Implement transitions and CLI.** Use a nonblocking exclusive file lock for mutations, owner-private atomic metadata, candidate/legacy preflight, a snapshot durable before pointer mutation, launcher postflight, and restoration with journal retention on failure. Report failed activation even after successful restoration. Do not turn process interruption into a success. Keep status/probe read-only and distinguish selected revision from connected client versions.
-- [ ] **Step 4: Write the runbook and guide links.** Include explicit config/server/cwd arguments, source-tag-to-SHA resolution, offline cache setup before preparation, preparation at a reviewed commit, activation JSON checks, a synthetic client entry pointing at absolute `launch.sh` with retained env, reconnection per client, standalone probe, legacy rollback limitation, recovery, and sanitized deployment records. Document separately authorized installation and that launcher probing does not prove every client reconnected. Validate CLI examples with `--help` and synthetic config; validate local links and anchors.
-- [ ] **Step 5: Run focused tests, then `uv sync --locked --group dev` and `uv run --locked --no-sync pytest -q` in this worktree.** Require the full suite to pass; default tests must use no real Vault or private configuration. Stage intended files; require `git diff --check`, `git diff --cached --check`, and `git diff --check origin/main...HEAD` to succeed. Perform one independent whole-change local review and address concrete findings before first push.
-- [ ] **Step 6: Commit the final task.** Message: `feat: add recoverable shared-client switching and adoption guide`. Report commits, verification, review, and production changes (none during implementation). Follow the repository's issue/PR/review gates for integration; authorize merging and real deployment separately.
+- [x] **Step 2: Run all three focused test modules and confirm new failures before implementation.**
+- [x] **Step 3: Implement transitions and CLI.** Use a nonblocking exclusive file lock for mutations, owner-private atomic metadata, candidate/legacy preflight, a snapshot durable before pointer mutation, launcher postflight, and restoration with journal retention on failure. Report failed activation even after successful restoration. Do not turn process interruption into a success. Keep status/probe read-only and distinguish selected revision from connected client versions.
+- [x] **Step 4: Write the runbook and guide links.** Include explicit config/server/cwd arguments, source-tag-to-SHA resolution, offline cache setup before preparation, preparation at a reviewed commit, activation JSON checks, a synthetic client entry pointing at absolute `launch.sh` with retained env, reconnection per client, standalone probe, legacy rollback limitation, recovery, and sanitized deployment records. Document separately authorized installation and that launcher probing does not prove every client reconnected. Validate CLI examples with `--help` and synthetic config; validate local links and anchors.
+- [x] **Step 5: Run focused tests, then `uv sync --locked --group dev` and `uv run --locked --no-sync pytest -q` in this worktree.** Require the full suite to pass; default tests must use no real Vault or private configuration. Stage intended files; require `git diff --check`, `git diff --cached --check`, and `git diff --check origin/main...HEAD` to succeed. Perform one independent whole-change local review and address concrete findings before first push.
+- [x] **Step 6: Commit the final task.** Message: `feat: add recoverable shared-client switching and adoption guide`. Report commits, verification, review, and production changes (none during implementation). Follow the repository's issue/PR/review gates for integration; authorize merging and real deployment separately.
 
 ## Execution handoff
 

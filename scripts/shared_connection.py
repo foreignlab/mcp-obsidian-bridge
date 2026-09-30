@@ -20,7 +20,7 @@ class ClientProfile:
 
 
 def reserved(key: str) -> bool:
-    return key.startswith(('UV_', 'PYTHON')) or key == 'VIRTUAL_ENV'
+    return key.startswith(('UV_', 'PYTHON')) or key in ('VIRTUAL_ENV', '__PYVENV_LAUNCHER__')
 
 
 def clean_environment(connection: dict[str, str]) -> dict[str, str]:

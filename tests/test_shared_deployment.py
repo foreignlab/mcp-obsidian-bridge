@@ -3,6 +3,7 @@ import importlib
 import io
 import json
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
 import sys
@@ -436,3 +437,97 @@ def test_probe_uses_prepared_python_and_masks_bad_subprocess_output(shared_runti
     with pytest.raises(deployment.SharedRuntimeError) as error:
         deployment.SharedDeployment._probe(app, revision)
     assert 'sentinel' not in str(error.value)
+
+
+def real_package_environment(release):
+    import venv
+    venv.create(release / '.venv', clear=True, with_pip=False, symlinks=True)
+    python = release / '.venv/bin/python'
+    site = Path(subprocess.check_output([str(python), '-I', '-c',
+        'import sysconfig; print(sysconfig.get_paths()["purelib"])']).decode().strip())
+    shutil.copytree(release / 'src/mcp_obsidian', site / 'mcp_obsidian')
+    metadata = site / 'mcp_obsidian-0.2.2.dist-info'
+    metadata.mkdir()
+    (metadata / 'METADATA').write_text('Name: mcp-obsidian\nVersion: 0.2.2\n')
+    return python, site
+
+
+def write_python_entry(entry, python, body):
+    # Match installer wrappers for interpreter paths containing spaces.
+    entry.write_text('#!/bin/sh\n\'\'\'exec\' ' + shlex.quote(str(python))
+        + ' "$0" "$@"\n\' \'\'\'\n' + body)
+    entry.chmod(0o700)
+
+
+def test_real_probe_preserves_prepared_source_inventory(shared_runtime, monkeypatch):
+    import sysconfig
+    from tests.test_shared_probe import TOOLS
+    app = shared_runtime
+    scripts = Path(__file__).parents[1] / 'scripts'
+    for name in ['probe_shared.py', 'shared_connection.py', 'probe_gateway.py']:
+        shutil.copy(scripts / name, app.repo / 'scripts' / name)
+    git(app.repo, 'commit', '-qam', 'real probe scripts')
+
+    def build(release):
+        python, site = real_package_environment(release)
+        # Reuse only installed test dependencies; no network or real Vault.
+        (site / 'test-dependencies.pth').write_text(sysconfig.get_paths()['purelib'] + '\n')
+        entry = release / '.venv/bin/mcp-obsidian'
+        write_python_entry(entry, python, 'import json, sys\ntools = ' + repr(sorted(TOOLS)) + '''
+for line in sys.stdin:
+    msg = json.loads(line)
+    if 'id' not in msg: continue
+    if msg['method'] == 'initialize':
+        result = {'protocolVersion': msg['params']['protocolVersion'], 'capabilities': {'tools': {}}, 'serverInfo': {'name': 'mcp-obsidian', 'version': 'test'}}
+    elif msg['method'] == 'tools/list':
+        result = {'tools': [{'name': t, 'inputSchema': {'type': 'object'}} for t in tools]}
+    elif msg['method'] == 'tools/call':
+        assert msg['params']['name'] in ('obsidian_list_files_in_vault', 'obsidian_get_recent_changes')
+        result = {'content': [{'type': 'text', 'text': '[]'}], 'isError': False}
+    else: raise RuntimeError('unexpected method')
+    print(json.dumps({'jsonrpc': '2.0', 'id': msg['id'], 'result': result}), flush=True)
+''')
+
+    monkeypatch.setattr(app, '_build', build)
+    monkeypatch.setattr(app, '_probe', deployment.SharedDeployment._probe.__get__(app))
+    revision = app.prepare('HEAD')
+    release, _ = app._manifest(revision)
+    assert not list((release / 'scripts').rglob('*.pyc'))
+    assert app.prepare(revision) == revision
+
+
+@pytest.mark.parametrize('variable', ['PYTHONEXECUTABLE', '__PYVENV_LAUNCHER__', 'PYTHONPLATLIBDIR'])
+def test_real_launcher_ignores_python_startup_overrides(shared_runtime, tmp_path, variable):
+    import venv
+    app = shared_runtime
+    revision = app.prepare('HEAD')
+    release = app.root / 'releases' / revision
+    python, _ = real_package_environment(release)
+    entry = release / '.venv/bin/mcp-obsidian'
+    write_python_entry(entry, python, 'import json, sys\n'
+        + 'print(json.dumps({"prefix": sys.prefix, "executable": sys.executable}))\n')
+    app.activate(revision)
+    other = tmp_path / 'other-environment'
+    venv.create(other, with_pip=False, symlinks=True)
+    env = deployment.clean_environment({})
+    env[variable] = str(other / 'bin/python') if variable != 'PYTHONPLATLIBDIR' else 'missing-library'
+    result = subprocess.run([str(app.root / 'launch.sh')], env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {'prefix': str(release / '.venv'), 'executable': str(python)}
+
+
+@pytest.mark.parametrize('symlink_parent', [False, True])
+def test_symlinked_runtime_location_can_activate_and_rollback(shared_runtime, tmp_path, monkeypatch, symlink_parent):
+    original = shared_runtime
+    alias = tmp_path / 'alias'
+    alias.symlink_to(original.root.parent if symlink_parent else original.root, target_is_directory=True)
+    root = alias / original.root.name if symlink_parent else alias
+    app = deployment.SharedDeployment(root, original.repo, client_config=original.client_config,
+        server=original.server, legacy_cwd=original.legacy_cwd)
+    monkeypatch.setattr(app, '_build', original._build)
+    monkeypatch.setattr(app, '_probe', original._probe)
+    revision = app.prepare('HEAD')
+    app.activate(revision)
+    assert app.status()['integrity'] == 'verified'
+    app.rollback()
+    assert app.status()['selected'] == 'legacy' and app.status()['integrity'] == 'verified'

@@ -87,7 +87,7 @@ def extract_source(data, destination):
 
 class SharedDeployment:
     def __init__(self, root, repo, *, client_config=None, server=None, uv=None, python=None, legacy_cwd=None):
-        self.root = Path(root).absolute()
+        self.root = Path(root).resolve()
         self.repo = Path(repo).absolute()
         self.client_config = Path(client_config).absolute() if client_config else None
         self.server = server
@@ -226,7 +226,7 @@ print(json.dumps(files))
         self._profile()
         revision = probe_revision or target
         release, _ = self._manifest(revision, require_prepared=False)
-        args = [release / '.venv/bin/python', release / 'scripts/probe_shared.py',
+        args = [release / '.venv/bin/python', '-B', release / 'scripts/probe_shared.py',
                 '--client-config', self.client_config, '--server', self.server]
         if launcher:
             args += ['--launcher', self.root / 'launch.sh']
@@ -281,7 +281,10 @@ print(json.dumps(files))
         command = shlex.join([legacy['command'], *legacy['args']])
         return f'''#!/bin/sh
 set -eu
-unset PYTHONPATH PYTHONHOME VIRTUAL_ENV
+for variable in $(/usr/bin/env | /usr/bin/awk -F= '$1 ~ /^PYTHON[A-Za-z0-9_]*$/ {{print $1}}'); do
+    unset "$variable"
+done
+unset __PYVENV_LAUNCHER__ VIRTUAL_ENV
 base={shlex.quote(str(self.root))}
 if [ -L "$base/current" ]; then
     release=$(CDPATH= cd -- "$base/current" && pwd -P)

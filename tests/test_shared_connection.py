@@ -81,3 +81,10 @@ def test_reserved_profile_keys_cannot_redirect_interpreter(profile_file):
     profile.env.update(PYTHONPATH='/wrong', UV_INDEX='wrong', VIRTUAL_ENV='/wrong')
     env = connection.clean_environment(profile.env)
     assert not {'PYTHONPATH', 'UV_INDEX', 'VIRTUAL_ENV'} & env.keys()
+
+
+def test_macos_launcher_override_is_removed_from_ambient_and_profile(profile_file, monkeypatch):
+    monkeypatch.setenv('__PYVENV_LAUNCHER__', '/wrong/ambient/python')
+    profile = connection.read_client_profile(profile_file, 'obsidian')
+    profile.env['__PYVENV_LAUNCHER__'] = '/wrong/profile/python'
+    assert '__PYVENV_LAUNCHER__' not in connection.clean_environment(profile.env)
