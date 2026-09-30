@@ -178,12 +178,24 @@ class SharedDeployment:
         if not command or not Path(command).is_file() or not os.access(command, os.X_OK):
             raise SharedRuntimeError('Legacy executable is unavailable')
         write_json(self.control / 'legacy.json', {'command': command, 'args': profile.args,
+            'executable': self._legacy_executable_info(command),
             'cwd': str(cwd), 'files': self._legacy_inventory()})
+
+    def _legacy_executable_info(self, command):
+        try:
+            path = Path(command)
+            if not path.is_file() or not os.access(path, os.X_OK):
+                raise ValueError()
+            return file_info(path.resolve())
+        except (OSError, ValueError, SharedRuntimeError):
+            raise SharedRuntimeError('Legacy executable integrity verification failed') from None
 
     def _check_legacy(self):
         legacy = read_json(self.control / 'legacy.json')
         if legacy.get('files') != self._legacy_inventory():
             raise SharedRuntimeError('Legacy source integrity verification failed')
+        if legacy.get('executable') != self._legacy_executable_info(legacy['command']):
+            raise SharedRuntimeError('Legacy executable integrity verification failed')
         return legacy
 
     def _build(self, release):
@@ -217,6 +229,28 @@ print(json.dumps(files))
         if (not os.access(entrypoint, os.X_OK) or entrypoint.is_symlink()
                 or manifest.get('entrypoint') != file_info(entrypoint)):
             raise SharedRuntimeError('Installed entry point integrity verification failed')
+        if manifest.get('runtime') != self._runtime_inventory(release):
+            raise SharedRuntimeError('Installed environment integrity verification failed')
+
+    def _runtime_inventory(self, release):
+        environment = release / '.venv'
+        if environment.is_symlink() or not environment.is_dir():
+            raise SharedRuntimeError('Installed environment integrity verification failed')
+        files = {}
+        for path in environment.rglob('*'):
+            relative = path.relative_to(environment)
+            if '__pycache__' in relative.parts or path.suffix in ('.pyc', '.pyo'):
+                continue
+            if path.is_symlink():
+                files[str(relative)] = {'symlink': hashlib.sha256(os.readlink(path).encode()).hexdigest(),
+                    'mode': path.lstat().st_mode & 0o777}
+                if path.is_file():
+                    files[str(relative)]['target'] = file_info(path.resolve())
+                elif not path.is_dir() or not path.resolve().is_relative_to(environment.resolve()):
+                    raise SharedRuntimeError('Installed environment integrity verification failed')
+            elif path.is_file():
+                files[str(relative)] = file_info(path)
+        return files
 
     def _manifest(self, revision, *, require_prepared=True):
         if not SHA.fullmatch(revision):
@@ -281,6 +315,7 @@ print(json.dumps(files))
             if manifest['status'] != 'prepared':
                 self._build(release)
                 manifest['entrypoint'] = file_info(release / '.venv/bin/mcp-obsidian')
+                manifest['runtime'] = self._runtime_inventory(release)
             self._verify_installed(release, manifest)
             summary = self._probe(revision)
             manifest.update(status='prepared', prepared_at=datetime.now(timezone.utc).isoformat(), probe=summary)
@@ -311,6 +346,9 @@ exec {command}
     def _state(self):
         path = self.control / 'state.json'
         state = read_json(path) if path.exists() else {'selected': 'legacy', 'previous': None}
+        return self._validate_state(state)
+
+    def _validate_state(self, state):
         if (not isinstance(state, dict) or set(state) != {'selected', 'previous'}
                 or any(value is not None and value != 'legacy' and (not isinstance(value, str) or not SHA.fullmatch(value))
                        for value in state.values()) or state['selected'] is None):
@@ -382,16 +420,13 @@ exec {command}
     def _restore(self):
         snapshot = read_json(self.control / 'pending.json')
         try:
-            state = snapshot['state'] or {'selected': 'legacy', 'previous': None}
+            state = self._validate_state(snapshot['state'] or {'selected': 'legacy', 'previous': None})
             target = snapshot['target']
             expected = None if state['selected'] == 'legacy' else str(self.root / 'releases' / state['selected'])
             if target != expected:
                 raise ValueError()
-            self._manifest(snapshot['probe_revision'])
-            if state['selected'] == 'legacy':
-                self._check_legacy()
-            else:
-                self._manifest(state['selected'])
+            if not isinstance(snapshot['probe_revision'], str) or not SHA.fullmatch(snapshot['probe_revision']):
+                raise ValueError()
             launcher = snapshot['launcher']
             if launcher is not None and (launcher['mode'] != 0o700 or bytes.fromhex(launcher['content']) != self._launcher()):
                 raise ValueError()
@@ -410,7 +445,10 @@ exec {command}
         else:
             write_json(self.control / 'state.json', snapshot['state'])
         self._check_selected()
-        self._probe(state['selected'], launcher=launcher is not None, probe_revision=snapshot['probe_revision'])
+        revision = state['selected']
+        if revision == 'legacy':
+            revision = self._verification_revision(snapshot['probe_revision'])
+        self._probe(state['selected'], launcher=launcher is not None, probe_revision=revision)
 
     def _clear_pending(self):
         (self.control / 'pending.json').unlink()
@@ -468,23 +506,24 @@ exec {command}
             self._history('recovered', selected=self._state()['selected'])
             self._clear_pending()
 
+    def _verification_revision(self, preferred=None):
+        releases = self.root / 'releases'
+        candidates = ([releases / preferred] if preferred else []) + sorted(releases.glob('*'))
+        for candidate in candidates:
+            if not SHA.fullmatch(candidate.name):
+                continue
+            try:
+                self._manifest(candidate.name)
+            except SharedRuntimeError:
+                continue
+            return candidate.name
+        raise SharedRuntimeError('A prepared environment is required for verification')
+
     def probe(self):
         state = self._check_selected()
         revision = state['selected']
         if revision == 'legacy':
-            candidates = sorted((self.root / 'releases').glob('*'))
-            revision = None
-            for candidate in candidates:
-                if not SHA.fullmatch(candidate.name):
-                    continue
-                try:
-                    self._manifest(candidate.name)
-                except SharedRuntimeError:
-                    continue
-                revision = candidate.name
-                break
-            if not revision:
-                raise SharedRuntimeError('A prepared environment is required for verification')
+            revision = self._verification_revision()
         return self._probe(state['selected'], launcher=(self.root / 'launch.sh').exists(), probe_revision=revision)
 
 

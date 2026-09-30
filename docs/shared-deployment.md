@@ -56,7 +56,7 @@ directory to preserve for its original startup route.
 
 Save the full SHA in the `prepared` result. Preparation preserves the legacy
 installation and current startup route; it does not create or switch the
-launcher. It validates source files and the installed package inventory, then
+launcher. It validates source files, the installed environment, and entry point, then
 checks the candidate MCP identity, catalog, Vault listing, and Recent Changes.
 Probe output contains only counts. Missing live checks are not success.
 
@@ -127,7 +127,8 @@ gain the ChatGPT gateway's write-folder policy.
 Rollback selects and verifies the recorded previous target. After initial
 adoption it can use the original uvx command through the stable launcher. That
 legacy route inherits its original cache and dependency behavior; it is not a
-locked managed snapshot. The original source/metadata must remain intact.
+locked managed snapshot. The original source, metadata, and recorded executable
+must remain intact.
 After two managed deployments, rollback selects a retained locked environment.
 Reconnect clients after rollback. A subsequent rollback can select the target
 that was active before the last rollback.
@@ -143,9 +144,11 @@ failure result. If recovery verification fails or a process is interrupted,
 .venv/bin/python scripts/deploy_shared.py status
 ```
 
-Recovery restores the saved pointer, launcher, and state, then checks the old
-startup route through a retained prepared environment. It clears the journal
-only after verification. Diagnose an unavailable Obsidian connection, changed
-legacy source, or damaged prepared environment before retrying. Do not hand-edit
+Recovery restores the saved pointer, launcher, and state before verification.
+It uses the previous managed release's probe, or an intact prepared environment
+for legacy recovery. If no probe environment is usable, the old route stays
+restored and the journal remains. The journal clears only after verification.
+Diagnose an unavailable Obsidian connection, changed legacy source or executable,
+or damaged prepared environment before retrying. Do not hand-edit
 the pointer, release files, or journal to bypass checks. `status` is read-only and
 requires no credentials; its selection report does not inventory running clients.

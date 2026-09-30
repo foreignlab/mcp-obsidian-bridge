@@ -621,3 +621,114 @@ def test_legacy_launcher_uses_same_uv_environment_as_probe(shared_runtime):
     assert not set(overrides) & deployment.clean_environment(profile.env).keys()
     env = {**os.environ, **profile.env}
     assert subprocess.check_output([str(app.root / 'launch.sh')], env=env) == b'unset|unset|unset\n'
+
+
+@pytest.mark.parametrize('damage', ['source', 'interpreter'])
+def test_recovery_uses_previous_managed_environment_when_candidate_breaks(shared_runtime, monkeypatch, damage):
+    app = shared_runtime
+    first = app.prepare('HEAD')
+    app.activate(first)
+    candidate = second_release(app)
+    with monkeypatch.context() as patch:
+        pointer = app._pointer
+        def interrupt(target):
+            pointer(target)
+            raise KeyboardInterrupt()
+        patch.setattr(app, '_pointer', interrupt)
+        with pytest.raises(KeyboardInterrupt):
+            app.activate(candidate)
+    release = app.root / 'releases' / candidate
+    broken = release / ('scripts/probe_shared.py' if damage == 'source' else '.venv/bin/python')
+    broken.write_text('broken candidate\n')
+    calls = []
+    def probe(target, **kwargs):
+        calls.append((target, kwargs['probe_revision']))
+        app._manifest(kwargs['probe_revision'])
+        return {'ok': True, 'tools': 15, 'vault_entries': 0, 'recent_changes': 0}
+    monkeypatch.setattr(app, '_probe', probe)
+    app.recover()
+    assert app.status()['selected'] == first and not app.status()['pending']
+    assert (app.root / 'current').resolve() == app.root / 'releases' / first
+    assert calls == [(first, first)]
+
+
+def test_recovery_restores_legacy_before_missing_probe_environment_error(shared_runtime, monkeypatch):
+    app = shared_runtime
+    candidate = app.prepare('HEAD')
+    with monkeypatch.context() as patch:
+        pointer = app._pointer
+        def interrupt(target):
+            pointer(target)
+            raise KeyboardInterrupt()
+        patch.setattr(app, '_pointer', interrupt)
+        with pytest.raises(KeyboardInterrupt):
+            app.activate(candidate)
+    (app.root / 'releases' / candidate / 'scripts/probe_shared.py').write_text('broken\n')
+    with pytest.raises(deployment.SharedRuntimeError):
+        app.recover()
+    assert app.status()['selected'] == 'legacy' and app.status()['pending']
+    assert not (app.root / 'current').is_symlink()
+    assert not (app.root / 'launch.sh').exists()
+
+
+@pytest.mark.parametrize('damage', ['modified', 'missing', 'extra', 'data', 'native', 'symlink-target'])
+def test_dependency_changes_invalidate_runtime_integrity(shared_runtime, monkeypatch, damage):
+    app = shared_runtime
+    build = app._build
+    def with_dependency(release):
+        build(release)
+        package = release / '.venv/site/dependency'
+        package.mkdir()
+        for name in ['__init__.py', 'resource.json', 'native.so']:
+            (package / name).write_text('original dependency\n')
+        if damage == 'symlink-target':
+            target = app.root / 'shared-dependency.py'
+            (package / '__init__.py').rename(target)
+            (package / '__init__.py').symlink_to(target)
+    monkeypatch.setattr(app, '_build', with_dependency)
+    revision = app.prepare('HEAD')
+    app.activate(revision)
+    package = app.root / 'releases' / revision / '.venv/site/dependency'
+    if damage == 'missing':
+        (package / '__init__.py').unlink()
+    else:
+        name = {'extra':'extra.py', 'data':'resource.json', 'native':'native.so'}.get(damage, '__init__.py')
+        (package / name).write_text('changed dependency\n')
+    assert app.status()['integrity'] == 'invalid'
+    with pytest.raises(deployment.SharedRuntimeError, match='integrity'):
+        app._manifest(revision)
+    with pytest.raises(deployment.SharedRuntimeError, match='integrity'):
+        app.prepare(revision)
+
+
+@pytest.mark.parametrize('damage', ['content', 'mode', 'symlink-target'])
+def test_legacy_executable_changes_invalidate_integrity(shared_runtime, damage):
+    app = shared_runtime
+    executable = app.root / 'legacy-command'
+    if damage == 'symlink-target':
+        target = app.root / 'legacy-target'
+        executable.rename(target)
+        executable.symlink_to(target)
+    app.prepare('HEAD')
+    assert app.status()['integrity'] == 'verified'
+    if damage == 'mode':
+        executable.chmod(0o600)
+    else:
+        executable.write_text('changed executable\n')
+    assert app.status()['integrity'] == 'invalid'
+    with pytest.raises(deployment.SharedRuntimeError, match='executable'):
+        app._check_legacy()
+
+
+def test_import_bytecode_does_not_invalidate_runtime_fingerprint(shared_runtime, monkeypatch):
+    app = shared_runtime
+    def build(release):
+        python, site = real_package_environment(release)
+        (site / 'dependency.py').write_text('VALUE = 1\n')
+        write_python_entry(release / '.venv/bin/mcp-obsidian', python, 'print("managed")\n')
+    monkeypatch.setattr(app, '_build', build)
+    revision = app.prepare('HEAD')
+    release = app.root / 'releases' / revision
+    subprocess.run([str(release / '.venv/bin/python'), '-I', '-c', 'import dependency'], check=True)
+    assert list((release / '.venv').rglob('dependency*.pyc'))
+    app._manifest(revision)
