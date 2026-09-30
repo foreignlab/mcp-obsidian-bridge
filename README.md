@@ -159,6 +159,8 @@ Use your client's equivalent server settings if it uses another format. Find the
 
 The source repository is named `mcp-obsidian-bridge`, but the Python distribution and executable retain the upstream name `mcp-obsidian`. The command above runs **this checkout** after the installation step below. A bare `uvx mcp-obsidian` installs the upstream package instead of this fork.
 
+For an existing shared installation, the [managed shared deployment runbook](docs/shared-deployment.md) describes commit-specific environments, a stable client launcher, and rollback.
+
 Alternatively, the shared server loads connection variables from a local `.env` file. Keep it private and ignored by Git. The ChatGPT gateway uses its own `connection.json` configuration.
 
 ## Quickstart

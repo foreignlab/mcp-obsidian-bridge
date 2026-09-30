@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import uuid
 
 from shared_connection import SharedRuntimeError, clean_environment, read_client_profile
 
@@ -272,10 +273,11 @@ print(json.dumps(files))
             manifest.update(status='prepared', prepared_at=datetime.now(timezone.utc).isoformat(), probe=summary)
             write_json(release / 'release.json', manifest)
             self._manifest(revision)
+            self._history('prepared', revision=revision)
             return revision
 
     def _launcher(self):
-        legacy = self._check_legacy()
+        legacy = read_json(self.control / 'legacy.json')
         command = shlex.join([legacy['command'], *legacy['args']])
         return f'''#!/bin/sh
 set -eu
@@ -293,10 +295,27 @@ exec {command}
     def _state(self):
         path = self.control / 'state.json'
         state = read_json(path) if path.exists() else {'selected': 'legacy', 'previous': None}
-        if (set(state) != {'selected', 'previous'}
+        if (not isinstance(state, dict) or set(state) != {'selected', 'previous'}
                 or any(value is not None and value != 'legacy' and (not isinstance(value, str) or not SHA.fullmatch(value))
                        for value in state.values()) or state['selected'] is None):
             raise SharedRuntimeError('Invalid shared deployment state')
+        return state
+
+    def _check_selected(self):
+        state = self._state()
+        current, launcher = self.root / 'current', self.root / 'launch.sh'
+        if launcher.is_symlink() or (launcher.exists() and
+                (launcher.read_bytes() != self._launcher() or launcher.stat().st_mode & 0o777 != 0o700)):
+            raise SharedRuntimeError('Selected launcher integrity verification failed')
+        if state['selected'] == 'legacy':
+            self._check_legacy()
+            if current.exists() or current.is_symlink() or ((self.control / 'state.json').exists() and not launcher.is_file()):
+                raise SharedRuntimeError('Selected pointer integrity verification failed')
+        else:
+            self._manifest(state['selected'])
+            expected = self.root / 'releases' / state['selected']
+            if not launcher.is_file() or not current.is_symlink() or current.resolve() != expected:
+                raise SharedRuntimeError('Selected pointer integrity verification failed')
         return state
 
     def status(self):
@@ -304,11 +323,194 @@ exec {command}
         integrity = 'unmanaged'
         if (self.control / 'legacy.json').exists():
             try:
-                if state['selected'] == 'legacy':
-                    self._check_legacy()
-                else:
-                    self._manifest(state['selected'])
+                self._check_selected()
                 integrity = 'verified'
             except SharedRuntimeError:
                 integrity = 'invalid'
         return {**state, 'pending': (self.control / 'pending.json').exists(), 'integrity': integrity}
+
+    def _pointer(self, target):
+        current = self.root / 'current'
+        if target is None:
+            if current.is_symlink():
+                current.unlink()
+        else:
+            temporary = self.root / ('.current-' + uuid.uuid4().hex)
+            try:
+                temporary.symlink_to(target)
+                os.replace(temporary, current)
+            finally:
+                temporary.unlink(missing_ok=True)
+        sync_directory(self.root)
+
+    def _history(self, event, **fields):
+        entry = {'timestamp': datetime.now(timezone.utc).isoformat(), 'event': event, **fields}
+        with (self.control / 'history.jsonl').open('a') as output:
+            os.chmod(output.name, 0o600)
+            output.write(json.dumps(entry) + '\n')
+            output.flush()
+            os.fsync(output.fileno())
+
+    def _snapshot(self, probe_revision):
+        launcher, current = self.root / 'launch.sh', self.root / 'current'
+        state_path = self.control / 'state.json'
+        snapshot = {
+            'state': read_json(state_path) if state_path.exists() else None,
+            'target': os.readlink(current) if current.is_symlink() else None,
+            'launcher': {'content': launcher.read_bytes().hex(), 'mode': launcher.stat().st_mode & 0o777}
+                        if launcher.exists() else None,
+            'probe_revision': probe_revision,
+        }
+        write_json(self.control / 'pending.json', snapshot)
+
+    def _restore(self):
+        snapshot = read_json(self.control / 'pending.json')
+        try:
+            state = snapshot['state'] or {'selected': 'legacy', 'previous': None}
+            target = snapshot['target']
+            expected = None if state['selected'] == 'legacy' else str(self.root / 'releases' / state['selected'])
+            if target != expected:
+                raise ValueError()
+            self._manifest(snapshot['probe_revision'])
+            if state['selected'] == 'legacy':
+                self._check_legacy()
+            else:
+                self._manifest(state['selected'])
+            launcher = snapshot['launcher']
+            if launcher is not None and (launcher['mode'] != 0o700 or bytes.fromhex(launcher['content']) != self._launcher()):
+                raise ValueError()
+        except (KeyError, TypeError, ValueError):
+            raise SharedRuntimeError('Invalid recovery snapshot; journal retained') from None
+        self._pointer(target)
+        path = self.root / 'launch.sh'
+        if launcher is None:
+            path.unlink(missing_ok=True)
+            sync_directory(self.root)
+        else:
+            atomic_write(path, bytes.fromhex(launcher['content']), launcher['mode'])
+        if snapshot['state'] is None:
+            (self.control / 'state.json').unlink(missing_ok=True)
+            sync_directory(self.control)
+        else:
+            write_json(self.control / 'state.json', snapshot['state'])
+        self._check_selected()
+        self._probe(state['selected'], launcher=launcher is not None, probe_revision=snapshot['probe_revision'])
+
+    def _clear_pending(self):
+        (self.control / 'pending.json').unlink()
+        sync_directory(self.control)
+
+    def _transition(self, target):
+        state = self._check_selected()
+        if state['selected'] == target:
+            raise SharedRuntimeError('Requested source is already selected')
+        if target == 'legacy':
+            self._check_legacy()
+            probe_revision = state['selected']
+        else:
+            self._manifest(target)
+            probe_revision = target
+        self._probe(target, probe_revision=probe_revision)
+        if state['selected'] == 'legacy':
+            self._probe('legacy', probe_revision=probe_revision)
+        self._snapshot(probe_revision)
+        try:
+            atomic_write(self.root / 'launch.sh', self._launcher(), 0o700)
+            self._pointer(None if target == 'legacy' else self.root / 'releases' / target)
+            self._probe(target, launcher=True, probe_revision=probe_revision)
+            write_json(self.control / 'state.json', {'selected': target, 'previous': state['selected']})
+            self._check_selected()
+            self._history('selected', selected=target, previous=state['selected'])
+            self._clear_pending()
+        except Exception:
+            try:
+                self._restore()
+                self._history('transition_failed_restored', selected=state['selected'])
+                self._clear_pending()
+            except Exception:
+                raise SharedRuntimeError('Transition recovery incomplete; inspect status and run recover') from None
+            raise SharedRuntimeError('Transition failed; previous route restored and verified') from None
+
+    def activate(self, revision):
+        with self._lock():
+            self._no_pending()
+            self._transition(revision)
+
+    def rollback(self):
+        with self._lock():
+            self._no_pending()
+            previous = self._state()['previous']
+            if previous is None:
+                raise SharedRuntimeError('No previous shared target is recorded')
+            self._transition(previous)
+
+    def recover(self):
+        with self._lock():
+            if not (self.control / 'pending.json').exists():
+                raise SharedRuntimeError('No pending shared transition exists')
+            self._restore()
+            self._history('recovered', selected=self._state()['selected'])
+            self._clear_pending()
+
+    def probe(self):
+        state = self._check_selected()
+        revision = state['selected']
+        if revision == 'legacy':
+            candidates = sorted((self.root / 'releases').glob('*'))
+            revision = None
+            for candidate in candidates:
+                if not SHA.fullmatch(candidate.name):
+                    continue
+                try:
+                    self._manifest(candidate.name)
+                except SharedRuntimeError:
+                    continue
+                revision = candidate.name
+                break
+            if not revision:
+                raise SharedRuntimeError('A prepared environment is required for verification')
+        return self._probe(state['selected'], launcher=(self.root / 'launch.sh').exists(), probe_revision=revision)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--root', type=Path, default=Path.home() / '.local/share/mcp-obsidian-tls')
+    parser.add_argument('--repo', type=Path, default=Path(__file__).resolve().parents[1])
+    parser.add_argument('--client-config', type=Path)
+    parser.add_argument('--server')
+    parser.add_argument('--legacy-cwd', type=Path)
+    parser.add_argument('--uv')
+    parser.add_argument('--python')
+    parser.add_argument('command', choices=['prepare', 'activate', 'rollback', 'recover', 'status', 'probe'])
+    parser.add_argument('revision', nargs='?')
+    args = parser.parse_args(argv)
+    options = vars(args).copy()
+    command, revision = options.pop('command'), options.pop('revision')
+    app = SharedDeployment(**options)
+    try:
+        if command not in ('prepare', 'activate') and revision is not None:
+            raise SharedRuntimeError('This command does not accept a source revision')
+        if command != 'status':
+            app._profile()
+        if command in ('prepare', 'activate'):
+            if not revision:
+                raise SharedRuntimeError('An explicit source revision is required')
+            result = getattr(app, command)(revision)
+            summary = {'prepared': result} if command == 'prepare' else app.status()
+        elif command == 'probe':
+            summary = app.probe()
+        elif command == 'status':
+            summary = app.status()
+        else:
+            getattr(app, command)()
+            summary = app.status()
+        print(json.dumps(summary))
+    except Exception as error:
+        message = str(error) if isinstance(error, SharedRuntimeError) else 'Shared deployment failed; private details suppressed'
+        print(json.dumps({'error': message}), file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

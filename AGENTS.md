@@ -37,6 +37,7 @@ contain the repository rules for both agents; Claude-specific duties are separat
 | Requesting, performing, or responding to a review, including documentation | [Review](docs/review.md) |
 | Changing gateway tools or authorization | [Gateway policy](chatgpt/README.md) |
 | Preparing, activating, or recovering a ChatGPT release | [Deployment](docs/deployment.md) |
+| Preparing, selecting, or recovering a shared stdio environment | [Shared deployment](docs/shared-deployment.md) |
 | Investigating tool failures or changing logging | [Diagnostics](docs/diagnostics.md) |
 | Bringing in upstream changes | [Fork maintenance](docs/upstream/maintenance.md) |
 

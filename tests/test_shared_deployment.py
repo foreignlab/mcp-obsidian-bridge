@@ -228,3 +228,211 @@ def test_real_distribution_metadata_reads_installed_code(shared_runtime):
     (site / 'mcp_obsidian/extra.py').write_text('extra')
     with pytest.raises(deployment.SharedRuntimeError, match='integrity'):
         app._manifest(revision)
+
+
+def test_first_activation_and_legacy_rollback_keep_stable_launcher(shared_runtime):
+    app = shared_runtime
+    revision = app.prepare('HEAD')
+    app.activate(revision)
+    assert app.status()['selected'] == revision and app.status()['previous'] == 'legacy'
+    assert subprocess.check_output([str(app.root / 'launch.sh')]) == b'managed\n'
+    app.rollback()
+    assert app.status()['selected'] == 'legacy' and app.status()['pending'] is False
+    assert subprocess.check_output([str(app.root / 'launch.sh')]) == b'legacy\n'
+    app.rollback()
+    assert app.status()['selected'] == revision
+
+
+def second_release(app):
+    (app.repo / 'src/mcp_obsidian/__init__.py').write_text('VERSION = 2\n')
+    git(app.repo, 'commit', '-qam', 'second')
+    return app.prepare('HEAD')
+
+
+def test_managed_rollback_selects_retained_environment(shared_runtime):
+    app = shared_runtime
+    first = app.prepare('HEAD')
+    app.activate(first)
+    second = second_release(app)
+    app.activate(second)
+    app.rollback()
+    assert app.status()['selected'] == first and app.status()['previous'] == second
+    assert (app.root / 'current').resolve() == app.root / 'releases' / first
+
+
+def test_failed_first_activation_restores_original_absence(shared_runtime, monkeypatch):
+    app = shared_runtime
+    revision = app.prepare('HEAD')
+    old_probe = app._probe
+    def fail(*args, **kwargs):
+        if kwargs.get('launcher'):
+            raise deployment.SharedRuntimeError('postflight failed')
+        return old_probe(*args, **kwargs)
+    monkeypatch.setattr(app, '_probe', fail)
+    with pytest.raises(deployment.SharedRuntimeError, match='restored'):
+        app.activate(revision)
+    assert app.status()['selected'] == 'legacy' and not app.status()['pending']
+    assert not (app.root / 'launch.sh').exists() and not (app.root / 'current').exists()
+
+
+def test_failed_recovery_keeps_journal_and_can_retry(shared_runtime, monkeypatch):
+    app = shared_runtime
+    revision = app.prepare('HEAD')
+    old_probe = app._probe
+    def fail(target, **kwargs):
+        if kwargs.get('launcher') or (target == 'legacy' and (app.control / 'pending.json').exists()):
+            raise deployment.SharedRuntimeError('probe failed')
+        return old_probe(target, **kwargs)
+    with monkeypatch.context() as patch:
+        patch.setattr(app, '_probe', fail)
+        with pytest.raises(deployment.SharedRuntimeError, match='recover'):
+            app.activate(revision)
+        assert app.status()['pending']
+        saved = (app.control / 'pending.json').read_bytes()
+        with pytest.raises(deployment.SharedRuntimeError):
+            app.recover()
+        assert (app.control / 'pending.json').read_bytes() == saved
+    app.recover()
+    assert not app.status()['pending'] and app.status()['selected'] == 'legacy'
+
+
+@pytest.mark.parametrize('boundary', ['pointer', 'state', 'history', 'clear'])
+def test_interruption_at_each_commit_boundary_is_recoverable(shared_runtime, monkeypatch, boundary):
+    app = shared_runtime
+    revision = app.prepare('HEAD')
+    with monkeypatch.context() as patch:
+        if boundary == 'pointer':
+            original = app._pointer
+            def interrupt(target):
+                original(target)
+                raise KeyboardInterrupt()
+            patch.setattr(app, '_pointer', interrupt)
+        elif boundary == 'state':
+            original = deployment.write_json
+            def interrupt(path, data):
+                original(path, data)
+                if path.name == 'state.json':
+                    raise KeyboardInterrupt()
+            patch.setattr(deployment, 'write_json', interrupt)
+        else:
+            def interrupt(*args, **kwargs):
+                raise KeyboardInterrupt()
+            patch.setattr(app, '_history' if boundary == 'history' else '_clear_pending', interrupt)
+        with pytest.raises(KeyboardInterrupt):
+            app.activate(revision)
+        assert app.status()['pending']
+    app.recover()
+    assert app.status()['selected'] == 'legacy' and not app.status()['pending']
+    assert not (app.root / 'launch.sh').exists()
+
+
+def test_concurrency_and_pending_block_all_other_mutations(shared_runtime):
+    app = shared_runtime
+    with app._lock():
+        with pytest.raises(deployment.SharedRuntimeError, match='Another'):
+            app.prepare('HEAD')
+    revision = app.prepare('HEAD')
+    deployment.write_json(app.control / 'pending.json', {'synthetic': True})
+    for operation in [lambda: app.prepare('HEAD'), lambda: app.activate(revision), app.rollback]:
+        with pytest.raises(deployment.SharedRuntimeError, match='recover'):
+            operation()
+
+
+@pytest.mark.parametrize('tampering', ['pointer', 'launcher', 'legacy'])
+def test_modified_selected_route_is_not_reported_verified(shared_runtime, tampering):
+    app = shared_runtime
+    revision = app.prepare('HEAD')
+    app.activate(revision)
+    if tampering == 'pointer':
+        (app.root / 'current').unlink()
+    elif tampering == 'launcher':
+        (app.root / 'launch.sh').write_text('changed')
+    else:
+        (app.root / 'src/mcp_obsidian/__init__.py').write_text('changed')
+    if tampering != 'legacy':
+        assert app.status()['integrity'] == 'invalid'
+    with pytest.raises(deployment.SharedRuntimeError):
+        app.rollback()
+
+
+def test_preflight_failure_never_creates_journal(shared_runtime, monkeypatch):
+    app = shared_runtime
+    revision = app.prepare('HEAD')
+    monkeypatch.setattr(app, '_probe', lambda *args, **kwargs:
+        (_ for _ in ()).throw(deployment.SharedRuntimeError('preflight failed')))
+    with pytest.raises(deployment.SharedRuntimeError):
+        app.activate(revision)
+    assert not app.status()['pending'] and not (app.root / 'launch.sh').exists()
+
+
+def test_launcher_keeps_running_environment_after_selection_changes(shared_runtime, monkeypatch):
+    app = shared_runtime
+    first = app.prepare('HEAD')
+    entry = app.root / 'releases' / first / '.venv/bin/mcp-obsidian'
+    entry.write_text('#!/bin/sh\npwd\nread value\nprintf "%s\\n" "$value"\n')
+    app.activate(first)
+    monkeypatch.setenv('PYTHONPATH', '/wrong')
+    monkeypatch.setenv('UV_PROJECT_ENVIRONMENT', '/wrong')
+    process = subprocess.Popen([str(app.root / 'launch.sh')], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    try:
+        assert process.stdout.readline().decode().strip() == str(app.root / 'releases' / first)
+        second = second_release(app)
+        app.activate(second)
+        assert process.poll() is None
+        output, _ = process.communicate(b'still-first\n', timeout=5)
+        assert output == b'still-first\n'
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+
+
+def test_cli_status_needs_no_credentials_and_masks_failures(tmp_path, capsys):
+    root = tmp_path / 'runtime'
+    root.mkdir()
+    assert deployment.main(['--root', str(root), '--repo', str(tmp_path), 'status']) == 0
+    assert json.loads(capsys.readouterr().out)['selected'] == 'legacy'
+    assert deployment.main(['--root', str(root), '--repo', str(tmp_path), 'activate', 'bad']) == 1
+    output = capsys.readouterr()
+    assert 'error' in output.err and 'Traceback' not in output.err
+
+
+def test_no_previous_target_has_fixed_error(shared_runtime):
+    with pytest.raises(deployment.SharedRuntimeError, match='previous'):
+        shared_runtime.rollback()
+
+
+def test_probe_skips_partial_environments(shared_runtime):
+    app = shared_runtime
+    app.prepare('HEAD')
+    partial = app.root / 'releases' / ('0' * 40)
+    partial.mkdir()
+    assert app.probe()['ok'] is True
+
+
+def test_cli_rejects_unused_revision_before_changing_selection(shared_runtime, monkeypatch, capsys):
+    app = shared_runtime
+    revision = app.prepare('HEAD')
+    app.activate(revision)
+    monkeypatch.setattr(deployment, 'SharedDeployment', lambda **kwargs: app)
+    assert deployment.main(['rollback', 'ignored-revision']) == 1
+    assert app.status()['selected'] == revision
+    assert 'error' in capsys.readouterr().err
+
+
+def test_probe_uses_prepared_python_and_masks_bad_subprocess_output(shared_runtime, monkeypatch):
+    app = shared_runtime
+    revision = app.prepare('HEAD')
+    app.python = '/unavailable/operator/python'
+    calls = []
+    def run(args, **kwargs):
+        calls.append(args)
+        return b'{"ok":true,"tools":15,"vault_entries":0,"recent_changes":0}'
+    monkeypatch.setattr(app, '_run', run)
+    result = deployment.SharedDeployment._probe(app, revision)
+    assert result['ok'] is True
+    assert calls[0][0] == app.root / 'releases' / revision / '.venv/bin/python'
+    monkeypatch.setattr(app, '_run', lambda *args, **kwargs: b'selected-sentinel-key')
+    with pytest.raises(deployment.SharedRuntimeError) as error:
+        deployment.SharedDeployment._probe(app, revision)
+    assert 'sentinel' not in str(error.value)
