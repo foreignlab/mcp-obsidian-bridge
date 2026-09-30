@@ -43,6 +43,8 @@ preparing managed releases.
 - `scripts/probe_shared.py`: read-only stdio MCP probe using the installed MCP
   1.29.0 SDK. It checks startup, the shared catalog, Vault listing, and Recent
   Changes without emitting note names or contents.
+- `scripts/shared_connection.py`: standard-library client-profile parsing and
+  validation shared by the manager and probe; it has no MCP SDK dependency.
 - `docs/shared-deployment.md`: operator runbook, initial client adoption,
   subsequent updates, verification, rollback, and interruption recovery.
 - Focused tests under `tests/`: temporary Git repositories, fake runtimes,
@@ -89,6 +91,10 @@ the named entry only. Validate the command/arguments/environment types. The
 first preparation captures the legacy command; later client entries may point
 to the managed launcher. Connection values remain in the client's private
 configuration and are read afresh for probes.
+
+If the existing entry has no explicit working directory, require
+`--legacy-cwd PATH` on first preparation. Record that operator-specified legacy
+directory instead of assuming the original client's working directory.
 
 Require HTTPS and a readable configured CA bundle for the probe path. Never
 disable certificate verification. A probe must receive the selected entry's
