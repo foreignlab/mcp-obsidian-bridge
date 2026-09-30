@@ -81,4 +81,3 @@ def test_reserved_profile_keys_cannot_redirect_interpreter(profile_file):
     profile.env.update(PYTHONPATH='/wrong', UV_INDEX='wrong', VIRTUAL_ENV='/wrong')
     env = connection.clean_environment(profile.env)
     assert not {'PYTHONPATH', 'UV_INDEX', 'VIRTUAL_ENV'} & env.keys()
-

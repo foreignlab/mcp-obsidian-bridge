@@ -60,4 +60,3 @@ def read_client_profile(path: Path, server: str) -> ClientProfile:
         return ClientProfile(command, list(args), dict(env), Path(cwd) if cwd else None)
     except (OSError, ValueError, TypeError, KeyError):
         raise SharedRuntimeError('Invalid private client configuration or HTTPS settings') from None
-
