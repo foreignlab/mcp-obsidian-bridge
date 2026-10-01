@@ -833,3 +833,65 @@ def test_legacy_registration_can_retry_after_interrupted_record_write(shared_run
     assert not (app.control / 'legacy.json').exists()
     app.prepare('HEAD')
     assert app.status()['integrity'] == 'verified'
+
+
+@pytest.mark.parametrize('missing', ['profile', 'ca'])
+def test_cli_recovery_restores_route_before_unavailable_connection_settings(shared_runtime, monkeypatch, missing):
+    app = shared_runtime
+    first = app.prepare('HEAD')
+    app.activate(first)
+    launcher = (app.root / 'launch.sh').read_bytes()
+    candidate = second_release(app)
+    with monkeypatch.context() as patch:
+        pointer = app._pointer
+        def interrupt(target):
+            pointer(target)
+            raise KeyboardInterrupt()
+        patch.setattr(app, '_pointer', interrupt)
+        with pytest.raises(KeyboardInterrupt):
+            app.activate(candidate)
+    unavailable = app.client_config if missing == 'profile' else Path(app._profile().env['REQUESTS_CA_BUNDLE'])
+    unavailable.unlink()
+    assert deployment.main(['--root', str(app.root), '--repo', str(app.repo),
+        '--client-config', str(app.client_config), '--server', app.server, 'recover']) == 1
+    assert (app.root / 'current').resolve() == app.root / 'releases' / first
+    assert (app.root / 'launch.sh').read_bytes() == launcher
+    assert app.status() == {'selected': first, 'previous': 'legacy', 'pending': True, 'integrity': 'verified'}
+
+
+@pytest.mark.parametrize('damage', ['missing', 'replaced', 'symlink'])
+def test_legacy_working_directory_changes_invalidate_integrity(shared_runtime, tmp_path, damage):
+    app = shared_runtime
+    cwd = tmp_path / 'legacy-working-directory'
+    cwd.mkdir()
+    app.legacy_cwd = cwd
+    revision = app.prepare('HEAD')
+    cwd.rename(tmp_path / 'retained-directory')
+    if damage == 'replaced':
+        cwd.mkdir()
+    elif damage == 'symlink':
+        other = tmp_path / 'different-directory'
+        other.mkdir()
+        cwd.symlink_to(other, target_is_directory=True)
+    assert app.status()['integrity'] == 'invalid'
+    with pytest.raises(deployment.SharedRuntimeError, match='working directory'):
+        app.activate(revision)
+
+
+def test_legacy_cwd_alias_keeps_original_directory_after_retargeting(shared_runtime, tmp_path):
+    app = shared_runtime
+    original = tmp_path / 'original-directory'
+    original.mkdir()
+    alias = tmp_path / 'cwd-alias'
+    alias.symlink_to(original, target_is_directory=True)
+    app.legacy_cwd = alias
+    (app.root / 'legacy-command').write_text('#!/bin/sh\npwd -P\n')
+    revision = app.prepare('HEAD')
+    assert app._check_legacy()['cwd'] == str(original.resolve())
+    other = tmp_path / 'other-directory'
+    other.mkdir()
+    alias.unlink()
+    alias.symlink_to(other, target_is_directory=True)
+    app.activate(revision)
+    app.rollback()
+    assert subprocess.check_output([str(app.root / 'launch.sh')]).decode().strip() == str(original.resolve())

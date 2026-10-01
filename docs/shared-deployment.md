@@ -136,6 +136,9 @@ adoption it can use the original uvx command through the stable launcher. That
 legacy route inherits its original cache and dependency behavior; it is not a
 locked managed snapshot. The original source, metadata, and recorded executable
 must remain intact, as must the startup record and its checksum.
+The recorded working directory is its resolved path and original filesystem
+identity; removing or replacing it prevents verified legacy reuse. Retargeting
+the original directory alias does not change the retained route.
 After two managed deployments, rollback selects a retained locked environment.
 Reconnect clients after rollback. A subsequent rollback can select the target
 that was active before the last rollback.
@@ -151,11 +154,13 @@ failure result. If recovery verification fails or a process is interrupted,
 .venv/bin/python scripts/deploy_shared.py status
 ```
 
-Recovery restores the saved pointer, launcher, and state before verification.
+Recovery restores the saved pointer, launcher, and state before validating the
+connection profile or CA bundle. If either is unavailable, the saved route stays
+restored and the journal remains until verification can succeed.
 It uses the previous managed release's probe, or an intact prepared environment
 for legacy recovery. If no probe environment is usable, the old route stays
 restored and the journal remains. The journal clears only after verification.
-Diagnose an unavailable Obsidian connection, changed legacy source or executable,
-or damaged prepared environment before retrying. Do not hand-edit
+Diagnose unavailable connection settings, a changed legacy working directory,
+source or executable, or a damaged prepared environment before retrying. Do not hand-edit
 the pointer, release files, or journal to bypass checks. `status` is read-only and
 requires no credentials; its selection report does not inventory running clients.

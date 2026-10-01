@@ -166,6 +166,7 @@ class SharedDeployment:
         cwd = profile.cwd or self.legacy_cwd
         if not cwd or not cwd.is_dir():
             raise SharedRuntimeError('Explicit legacy working directory is required')
+        cwd = cwd.resolve()
         if Path(profile.command).is_absolute():
             command = profile.command
         elif '/' in profile.command:
@@ -179,7 +180,8 @@ class SharedDeployment:
             raise SharedRuntimeError('Legacy executable is unavailable')
         legacy = {'command': command, 'args': profile.args,
             'executable': self._legacy_executable_info(command),
-            'cwd': str(cwd), 'files': self._legacy_inventory()}
+            'cwd': str(cwd), 'cwd_identity': self._legacy_cwd_info(cwd),
+            'files': self._legacy_inventory()}
         data = (json.dumps(legacy, indent=2) + '\n').encode()
         write_json(self.control / 'legacy-fingerprint.json',
                    {'sha256': hashlib.sha256(data).hexdigest(), 'mode': 0o600})
@@ -200,8 +202,20 @@ class SharedDeployment:
         except (OSError, ValueError, SharedRuntimeError):
             raise SharedRuntimeError('Legacy executable integrity verification failed') from None
 
+    def _legacy_cwd_info(self, cwd):
+        try:
+            path = Path(cwd)
+            if not path.is_dir() or not os.access(path, os.X_OK) or path.resolve() != path:
+                raise ValueError()
+            info = path.stat()
+            return {'device': info.st_dev, 'inode': info.st_ino}
+        except (OSError, ValueError):
+            raise SharedRuntimeError('Legacy working directory integrity verification failed') from None
+
     def _check_legacy(self):
         legacy = self._read_legacy()
+        if legacy.get('cwd_identity') != self._legacy_cwd_info(legacy['cwd']):
+            raise SharedRuntimeError('Legacy working directory integrity verification failed')
         if legacy.get('files') != self._legacy_inventory():
             raise SharedRuntimeError('Legacy source integrity verification failed')
         if legacy.get('executable') != self._legacy_executable_info(legacy['command']):
@@ -562,7 +576,7 @@ def main(argv=None):
     try:
         if command not in ('prepare', 'activate') and revision is not None:
             raise SharedRuntimeError('This command does not accept a source revision')
-        if command != 'status':
+        if command not in ('status', 'recover'):
             app._profile()
         if command in ('prepare', 'activate'):
             if not revision:
