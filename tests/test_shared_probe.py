@@ -21,9 +21,11 @@ TOOLS = {
 }
 
 
-def test_real_stdio_probe_is_read_only_and_hides_child_stderr(profile_file, tmp_path, capsys):
+@pytest.mark.parametrize('managed', [False, True])
+def test_real_stdio_probe_is_read_only_and_hides_child_stderr(profile_file, tmp_path, capsys, managed):
     server = tmp_path / 'synthetic.py'
-    server.write_text('''import json, sys
+    server.write_text('import sys\nassert sys.pycache_prefix == ' + repr('/dev/null' if managed else None)
+        + '\nassert sys.dont_write_bytecode == ' + repr(managed) + '\n' + '''import json, sys
 print("selected-sentinel-key private-note-content", file=sys.stderr, flush=True)
 tools = ''' + repr(sorted(TOOLS)) + '''
 for line in sys.stdin:
@@ -41,7 +43,8 @@ for line in sys.stdin:
     print(json.dumps({'jsonrpc': '2.0', 'id': msg['id'], 'result': result}), flush=True)
 ''')
     profile = probe.read_client_profile(profile_file, 'obsidian')
-    result = asyncio.run(probe.probe(profile, command=[sys.executable, str(server)], cwd=tmp_path))
+    profile.env['PYTHONPYCACHEPREFIX'] = '/wrong-cache'
+    result = asyncio.run(probe.probe(profile, command=[sys.executable, str(server)], cwd=tmp_path, managed=managed))
     assert result == {'ok': True, 'tools': 15, 'vault_entries': 0, 'recent_changes': 0}
     assert 'sentinel' not in capsys.readouterr().err
 

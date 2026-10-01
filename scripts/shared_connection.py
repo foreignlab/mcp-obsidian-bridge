@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 import tomllib
 
+MANAGED_PYTHON_ENV = {'PYTHONPYCACHEPREFIX': '/dev/null', 'PYTHONDONTWRITEBYTECODE': '1'}
+
 
 class SharedRuntimeError(Exception):
     """A fixed, privacy-safe operator error."""
@@ -23,11 +25,13 @@ def reserved(key: str) -> bool:
     return key.startswith(('UV_', 'PYTHON')) or key in ('VIRTUAL_ENV', '__PYVENV_LAUNCHER__')
 
 
-def clean_environment(connection: dict[str, str]) -> dict[str, str]:
+def clean_environment(connection: dict[str, str], *, managed: bool = False) -> dict[str, str]:
     env = {key: value for key, value in os.environ.items()
            if not reserved(key) and not key.startswith('OBSIDIAN_')
            and key not in ('REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE', 'SSL_CERT_FILE', 'SSL_CERT_DIR')}
     env.update({key: value for key, value in connection.items() if not reserved(key)})
+    if managed:
+        env.update(MANAGED_PYTHON_ENV)
     return env
 
 

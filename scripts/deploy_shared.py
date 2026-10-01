@@ -19,7 +19,7 @@ import tarfile
 import tempfile
 import uuid
 
-from shared_connection import SharedRuntimeError, clean_environment, read_client_profile
+from shared_connection import MANAGED_PYTHON_ENV, SharedRuntimeError, clean_environment, read_client_profile
 
 SHA = re.compile(r'[0-9a-f]{40}|[0-9a-f]{64}')
 
@@ -177,9 +177,19 @@ class SharedDeployment:
             command = shutil.which(profile.command, path=os.pathsep.join(paths))
         if not command or not Path(command).is_file() or not os.access(command, os.X_OK):
             raise SharedRuntimeError('Legacy executable is unavailable')
-        write_json(self.control / 'legacy.json', {'command': command, 'args': profile.args,
+        legacy = {'command': command, 'args': profile.args,
             'executable': self._legacy_executable_info(command),
-            'cwd': str(cwd), 'files': self._legacy_inventory()})
+            'cwd': str(cwd), 'files': self._legacy_inventory()}
+        data = (json.dumps(legacy, indent=2) + '\n').encode()
+        write_json(self.control / 'legacy-fingerprint.json',
+                   {'sha256': hashlib.sha256(data).hexdigest(), 'mode': 0o600})
+        atomic_write(self.control / 'legacy.json', data)
+
+    def _read_legacy(self):
+        record = self.control / 'legacy.json'
+        if file_info(record) != read_json(self.control / 'legacy-fingerprint.json'):
+            raise SharedRuntimeError('Legacy route integrity verification failed')
+        return read_json(record)
 
     def _legacy_executable_info(self, command):
         try:
@@ -191,7 +201,7 @@ class SharedDeployment:
             raise SharedRuntimeError('Legacy executable integrity verification failed') from None
 
     def _check_legacy(self):
-        legacy = read_json(self.control / 'legacy.json')
+        legacy = self._read_legacy()
         if legacy.get('files') != self._legacy_inventory():
             raise SharedRuntimeError('Legacy source integrity verification failed')
         if legacy.get('executable') != self._legacy_executable_info(legacy['command']):
@@ -216,7 +226,8 @@ for path in package.rglob('*.py'):
 print(json.dumps(files))
 '''
         try:
-            return json.loads(self._run([release / '.venv/bin/python', '-I', '-c', script, release / '.venv']))
+            return json.loads(self._run([release / '.venv/bin/python', '-I', '-B',
+                '-X', 'pycache_prefix=/dev/null', '-c', script, release / '.venv']))
         except (ValueError, SharedRuntimeError):
             raise SharedRuntimeError('Installed package integrity verification failed') from None
 
@@ -272,7 +283,8 @@ print(json.dumps(files))
         self._profile()
         revision = probe_revision or target
         release, _ = self._manifest(revision, require_prepared=False)
-        args = [release / '.venv/bin/python', '-B', release / 'scripts/probe_shared.py',
+        args = [release / '.venv/bin/python', '-B', '-X', 'pycache_prefix=/dev/null',
+                release / 'scripts/probe_shared.py',
                 '--client-config', self.client_config, '--server', self.server]
         if launcher:
             args += ['--launcher', self.root / 'launch.sh']
@@ -325,8 +337,9 @@ print(json.dumps(files))
             return revision
 
     def _launcher(self):
-        legacy = read_json(self.control / 'legacy.json')
+        legacy = self._read_legacy()
         command = shlex.join([legacy['command'], *legacy['args']])
+        managed_env = ' '.join(f'{key}={shlex.quote(value)}' for key, value in MANAGED_PYTHON_ENV.items())
         return f'''#!/bin/sh
 set -eu
 for variable in $(/usr/bin/env | /usr/bin/awk -F= '$1 ~ /^(PYTHON[A-Za-z0-9_]*|UV_[A-Za-z0-9_]*)$/ {{print $1}}'); do
@@ -340,6 +353,7 @@ if release=$(/usr/bin/readlink "$base/current" 2>/dev/null); then
         *) release="$base/$release" ;;
     esac
     cd "$release"
+    export {managed_env}
     exec "$release/.venv/bin/mcp-obsidian"
 fi
 cd {shlex.quote(legacy['cwd'])}

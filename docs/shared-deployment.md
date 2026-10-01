@@ -28,6 +28,13 @@ it. Private state, the original startup record, a transition journal, and
 content-free history are under `deploy-shared/`. Old releases stay available.
 Build environments at their final paths; do not move them or edit them in place.
 
+Managed launches, probes, and interpreter-based verification ignore source-backed
+import caches and read the retained source. They use `pycache_prefix=/dev/null`
+and disable bytecode writes; ignored `__pycache__` files cannot affect those
+operations. Sourceless bytecode outside those directories remains part of the
+runtime fingerprint. The original startup record has a separate checksum covering
+the complete command, arguments, working directory, and retained file information.
+
 The source checkout, prepared environments, and connected client processes are
 separate. Keep the checkout available for maintenance and recovery commands.
 Use `--root`, `--repo`, `--uv`, or `--python` before the command for nondefault
@@ -128,7 +135,7 @@ Rollback selects and verifies the recorded previous target. After initial
 adoption it can use the original uvx command through the stable launcher. That
 legacy route inherits its original cache and dependency behavior; it is not a
 locked managed snapshot. The original source, metadata, and recorded executable
-must remain intact.
+must remain intact, as must the startup record and its checksum.
 After two managed deployments, rollback selects a retained locked environment.
 Reconnect clients after rollback. A subsequent rollback can select the target
 that was active before the last rollback.

@@ -55,9 +55,9 @@ def quiet_sdk():
         logger.handlers, logger.propagate = old
 
 
-async def probe(profile: ClientProfile, *, command: list[str], cwd: Path) -> dict:
+async def probe(profile: ClientProfile, *, command: list[str], cwd: Path, managed: bool = False) -> dict:
     params = StdioServerParameters(command=command[0], args=command[1:],
-                                   cwd=str(cwd), env=clean_environment(profile.env))
+                                   cwd=str(cwd), env=clean_environment(profile.env, managed=managed))
     with quiet_sdk(), tempfile.TemporaryFile(mode='w+') as errors:
         async with stdio_client(params, errlog=errors) as (read, write):
             async with ClientSession(read, write, read_timeout_seconds=timedelta(seconds=15)) as session:
@@ -95,7 +95,8 @@ def main(argv=None):
         else:
             record = json.loads(args.launch_record.read_text())
             command, cwd = [record['command'], *record['args']], Path(record['cwd'])
-        result = asyncio.run(asyncio.wait_for(probe(profile, command=command, cwd=cwd), timeout=45))
+        result = asyncio.run(asyncio.wait_for(probe(profile, command=command, cwd=cwd,
+            managed=args.executable is not None), timeout=45))
         print(json.dumps(result))
     except Exception:
         print(json.dumps({'error': 'Shared probe failed; private details suppressed'}), file=sys.stderr)

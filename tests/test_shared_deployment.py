@@ -775,3 +775,61 @@ def test_sourceless_startup_bytecode_invalidates_runtime_before_execution(shared
     # Demonstrate why this file cannot be treated as a disposable import cache.
     assert subprocess.check_output([str(app.root / 'launch.sh')]) == b'managed\n'
     assert marker.exists()
+
+
+@pytest.mark.parametrize('damage', ['truncated', 'replaced'])
+def test_managed_launcher_ignores_changed_import_cache(shared_runtime, monkeypatch, tmp_path, damage):
+    import py_compile
+    app = shared_runtime
+    def build(release):
+        python, site = real_package_environment(release)
+        (site / 'dependency.py').write_text('VALUE = "source"\n')
+        write_python_entry(release / '.venv/bin/mcp-obsidian', python, 'import dependency; print(dependency.VALUE)\n')
+    monkeypatch.setattr(app, '_build', build)
+    revision = app.prepare('HEAD')
+    app.activate(revision)
+    release = app.root / 'releases' / revision
+    subprocess.run([str(release / '.venv/bin/python'), '-I', '-c', 'import dependency'], check=True)
+    cache = next((release / '.venv').rglob('dependency*.pyc'))
+    if damage == 'truncated':
+        cache.write_bytes(cache.read_bytes()[:16])
+    else:
+        payload = tmp_path / 'payload.py'
+        payload.write_text('VALUE = "altered cache"\n')
+        replacement = Path(py_compile.compile(str(payload), doraise=True))
+        cache.write_bytes(cache.read_bytes()[:16] + replacement.read_bytes()[16:])
+    assert app.status()['integrity'] == 'verified'
+    launched = subprocess.run([str(app.root / 'launch.sh')], capture_output=True)
+    assert launched.returncode == 0, launched.stderr
+    assert launched.stdout == b'source\n'
+
+
+@pytest.mark.parametrize('field', ['args', 'cwd'])
+def test_frozen_legacy_route_edits_are_rejected(shared_runtime, tmp_path, field):
+    app = shared_runtime
+    revision = app.prepare('HEAD')
+    record = app.control / 'legacy.json'
+    data = json.loads(record.read_text())
+    data[field] = ['--altered'] if field == 'args' else str(tmp_path)
+    deployment.write_json(record, data)
+    assert app.status()['integrity'] == 'invalid'
+    with pytest.raises(deployment.SharedRuntimeError, match='integrity'):
+        app.activate(revision)
+    assert not (app.root / 'launch.sh').exists()
+
+
+def test_legacy_registration_can_retry_after_interrupted_record_write(shared_runtime, monkeypatch):
+    app = shared_runtime
+    write = deployment.atomic_write
+    def interrupt_record(path, *args, **kwargs):
+        if path == app.control / 'legacy.json':
+            raise OSError('interrupted legacy registration')
+        return write(path, *args, **kwargs)
+    with monkeypatch.context() as patch:
+        patch.setattr(deployment, 'atomic_write', interrupt_record)
+        with pytest.raises(OSError):
+            app.prepare('HEAD')
+    assert (app.control / 'legacy-fingerprint.json').exists()
+    assert not (app.control / 'legacy.json').exists()
+    app.prepare('HEAD')
+    assert app.status()['integrity'] == 'verified'
