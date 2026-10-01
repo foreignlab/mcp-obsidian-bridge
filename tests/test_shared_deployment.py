@@ -982,3 +982,78 @@ def test_recovery_rejects_launcher_presence_inconsistent_with_saved_state(shared
         app.recover()
     assert (app.root / 'current').resolve() == app.root / 'releases' / candidate
     assert launcher.exists() and path.exists()
+
+
+def test_git_replacement_objects_cannot_change_reviewed_archive(shared_runtime):
+    app = shared_runtime
+    reviewed = git(app.repo, 'rev-parse', 'HEAD')
+    (app.repo / 'src/mcp_obsidian/__init__.py').write_text('VERSION = 2\n')
+    git(app.repo, 'commit', '-qam', 'replacement source')
+    replacement = git(app.repo, 'rev-parse', 'HEAD')
+    git(app.repo, 'replace', reviewed, replacement)
+    assert git(app.repo, 'status', '--porcelain') == ''
+    assert app.prepare(reviewed) == reviewed
+    release = app.root / 'releases' / reviewed
+    assert (release / 'src/mcp_obsidian/__init__.py').read_text() == 'VERSION = 1\n'
+
+
+@pytest.mark.parametrize('damage', ['extra', 'modified'])
+def test_partial_preparation_rebuilds_environment_before_trusting_it(shared_runtime, monkeypatch, damage):
+    app = shared_runtime
+    build = app._build
+    def exact_sync_like_build(release):
+        build(release)
+        dependency = release / '.venv/site/dependency.py'
+        if not dependency.exists():
+            dependency.write_text('original dependency\n')
+    monkeypatch.setattr(app, '_build', exact_sync_like_build)
+    with monkeypatch.context() as patch:
+        def fail(*args, **kwargs):
+            raise deployment.SharedRuntimeError('probe failed')
+        patch.setattr(app, '_probe', fail)
+        with pytest.raises(deployment.SharedRuntimeError):
+            app.prepare('HEAD')
+    revision = git(app.repo, 'rev-parse', 'HEAD')
+    site = app.root / 'releases' / revision / '.venv/site'
+    if damage == 'extra':
+        (site / 'sitecustomize.py').write_text('unrecorded code\n')
+    else:
+        (site / 'dependency.py').write_text('modified dependency\n')
+    app.prepare(revision)
+    assert not (site / 'sitecustomize.py').exists()
+    assert (site / 'dependency.py').read_text() == 'original dependency\n'
+
+
+def test_partial_environment_symlink_is_rejected_without_touching_target(shared_runtime, monkeypatch, tmp_path):
+    app = shared_runtime
+    with monkeypatch.context() as patch:
+        def fail(*args, **kwargs):
+            raise deployment.SharedRuntimeError('probe failed')
+        patch.setattr(app, '_probe', fail)
+        with pytest.raises(deployment.SharedRuntimeError):
+            app.prepare('HEAD')
+    revision = git(app.repo, 'rev-parse', 'HEAD')
+    environment = app.root / 'releases' / revision / '.venv'
+    shutil.rmtree(environment)
+    target = tmp_path / 'unrelated-environment'
+    target.mkdir()
+    (target / 'sentinel').write_text('preserve\n')
+    environment.symlink_to(target, target_is_directory=True)
+    with pytest.raises(deployment.SharedRuntimeError):
+        app.prepare(revision)
+    assert list(target.iterdir()) == [target / 'sentinel']
+
+
+def test_preparation_does_not_rebuild_selected_environment_with_changed_status(shared_runtime):
+    app = shared_runtime
+    revision = app.prepare('HEAD')
+    app.activate(revision)
+    release = app.root / 'releases' / revision
+    manifest = release / 'release.json'
+    data = json.loads(manifest.read_text())
+    data['status'] = 'preparing'
+    deployment.write_json(manifest, data)
+    before = app._runtime_inventory(release)
+    with pytest.raises(deployment.SharedRuntimeError):
+        app.prepare(revision)
+    assert app._runtime_inventory(release) == before

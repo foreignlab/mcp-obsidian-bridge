@@ -110,10 +110,13 @@ class SharedDeployment:
             yield
 
     def _run(self, args, *, timeout=120):
+        args = [str(arg) for arg in args]
+        if args[0] == 'git':
+            args.insert(1, '--no-replace-objects')
         env = {key: value for key, value in clean_environment({}).items()
                if not key.startswith('GIT_')}
         try:
-            result = subprocess.run([str(a) for a in args], cwd=self.repo,
+            result = subprocess.run(args, cwd=self.repo,
                 env=env, capture_output=True, timeout=timeout)
         except (OSError, subprocess.TimeoutExpired):
             raise SharedRuntimeError('Deployment subprocess failed or timed out; output suppressed') from None
@@ -339,6 +342,18 @@ print(json.dumps(files))
                     os.rename(staging, release)
                     sync_directory(release.parent)
             if manifest['status'] != 'prepared':
+                if manifest['status'] != 'preparing' or set(manifest) != {'revision', 'status', 'files'}:
+                    raise SharedRuntimeError('Invalid partial preparation metadata')
+                current = self.root / 'current'
+                if (revision in self._state().values()
+                        or (current.is_symlink() and current.resolve() == release)):
+                    raise SharedRuntimeError('Cannot rebuild a selected or retained environment')
+                environment = release / '.venv'
+                if environment.is_symlink() or (environment.exists() and not environment.is_dir()):
+                    raise SharedRuntimeError('Invalid partial preparation environment')
+                if environment.exists():
+                    shutil.rmtree(environment)
+                    sync_directory(release)
                 self._build(release)
                 manifest['entrypoint'] = file_info(release / '.venv/bin/mcp-obsidian')
                 manifest['runtime'] = self._runtime_inventory(release)
