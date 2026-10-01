@@ -154,9 +154,10 @@ failure result. If recovery verification fails or a process is interrupted,
 .venv/bin/python scripts/deploy_shared.py status
 ```
 
-Recovery restores the saved pointer, launcher, and state before validating the
-connection profile or CA bundle. If either is unavailable, the saved route stays
-restored and the journal remains until verification can succeed.
+Recovery validates the private snapshot structure and saved launcher checksum,
+then restores the saved pointer, launcher, and state before validating the legacy
+record, connection profile, or CA bundle. If any is unavailable or changed, the
+saved route stays restored and the journal remains until verification can succeed.
 It uses the previous managed release's probe, or an intact prepared environment
 for legacy recovery. If no probe environment is usable, the old route stays
 restored and the journal remains. The journal clears only after verification.

@@ -442,7 +442,7 @@ exec {command}
         snapshot = {
             'state': read_json(state_path) if state_path.exists() else None,
             'target': os.readlink(current) if current.is_symlink() else None,
-            'launcher': {'content': launcher.read_bytes().hex(), 'mode': launcher.stat().st_mode & 0o777}
+            'launcher': {'content': launcher.read_bytes().hex(), **file_info(launcher)}
                         if launcher.exists() else None,
             'probe_revision': probe_revision,
         }
@@ -459,7 +459,8 @@ exec {command}
             if not isinstance(snapshot['probe_revision'], str) or not SHA.fullmatch(snapshot['probe_revision']):
                 raise ValueError()
             launcher = snapshot['launcher']
-            if launcher is not None and (launcher['mode'] != 0o700 or bytes.fromhex(launcher['content']) != self._launcher()):
+            if launcher is not None and (launcher['mode'] != 0o700
+                    or hashlib.sha256(bytes.fromhex(launcher['content'])).hexdigest() != launcher['sha256']):
                 raise ValueError()
         except (KeyError, TypeError, ValueError):
             raise SharedRuntimeError('Invalid recovery snapshot; journal retained') from None

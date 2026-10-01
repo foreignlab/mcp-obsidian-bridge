@@ -895,3 +895,57 @@ def test_legacy_cwd_alias_keeps_original_directory_after_retargeting(shared_runt
     app.activate(revision)
     app.rollback()
     assert subprocess.check_output([str(app.root / 'launch.sh')]).decode().strip() == str(original.resolve())
+
+
+@pytest.mark.parametrize('damage', ['missing', 'changed'])
+def test_recovery_restores_managed_snapshot_before_unrelated_legacy_metadata_checks(shared_runtime, monkeypatch, damage):
+    app = shared_runtime
+    first = app.prepare('HEAD')
+    app.activate(first)
+    launcher = (app.root / 'launch.sh').read_bytes()
+    candidate = second_release(app)
+    with monkeypatch.context() as patch:
+        pointer = app._pointer
+        def interrupt(target):
+            pointer(target)
+            raise KeyboardInterrupt()
+        patch.setattr(app, '_pointer', interrupt)
+        with pytest.raises(KeyboardInterrupt):
+            app.activate(candidate)
+    record = app.control / 'legacy.json'
+    if damage == 'missing':
+        record.unlink()
+    else:
+        data = json.loads(record.read_text())
+        data['args'] = ['changed']
+        deployment.write_json(record, data)
+    with pytest.raises(deployment.SharedRuntimeError):
+        app.recover()
+    assert (app.root / 'current').resolve() == app.root / 'releases' / first
+    assert (app.root / 'launch.sh').read_bytes() == launcher
+    assert app._state() == {'selected': first, 'previous': 'legacy'}
+    assert (app.control / 'pending.json').exists()
+    assert subprocess.check_output([str(app.root / 'launch.sh')]) == b'managed\n'
+
+
+def test_recovery_rejects_corrupted_launcher_snapshot_before_switching(shared_runtime, monkeypatch):
+    app = shared_runtime
+    first = app.prepare('HEAD')
+    app.activate(first)
+    candidate = second_release(app)
+    with monkeypatch.context() as patch:
+        pointer = app._pointer
+        def interrupt(target):
+            pointer(target)
+            raise KeyboardInterrupt()
+        patch.setattr(app, '_pointer', interrupt)
+        with pytest.raises(KeyboardInterrupt):
+            app.activate(candidate)
+    path = app.control / 'pending.json'
+    data = json.loads(path.read_text())
+    data['launcher']['content'] = b'corrupted launcher'.hex()
+    deployment.write_json(path, data)
+    with pytest.raises(deployment.SharedRuntimeError, match='Invalid recovery snapshot'):
+        app.recover()
+    assert (app.root / 'current').resolve() == app.root / 'releases' / candidate
+    assert path.exists()
