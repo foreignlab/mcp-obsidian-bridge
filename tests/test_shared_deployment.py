@@ -919,12 +919,13 @@ def test_recovery_restores_managed_snapshot_before_unrelated_legacy_metadata_che
         data = json.loads(record.read_text())
         data['args'] = ['changed']
         deployment.write_json(record, data)
-    with pytest.raises(deployment.SharedRuntimeError):
-        app.recover()
+    app.recover()
     assert (app.root / 'current').resolve() == app.root / 'releases' / first
     assert (app.root / 'launch.sh').read_bytes() == launcher
-    assert app._state() == {'selected': first, 'previous': 'legacy'}
-    assert (app.control / 'pending.json').exists()
+    state = app._state()
+    assert state['selected'] == first and state['previous'] == 'legacy'
+    assert state['launcher'] == deployment.file_info(app.root / 'launch.sh')
+    assert not (app.control / 'pending.json').exists()
     assert subprocess.check_output([str(app.root / 'launch.sh')]) == b'managed\n'
 
 
@@ -1078,3 +1079,57 @@ def test_preparation_uses_committed_blobs_without_archive_attributes(shared_runt
     revision = app.prepare('HEAD')
     release = app.root / 'releases' / revision
     assert (release / 'docs/retained.md').read_text() == 'reviewed content\n'
+
+
+def test_new_manager_launcher_can_replace_a_verified_installed_version(shared_runtime, monkeypatch):
+    app = shared_runtime
+    first = app.prepare('HEAD')
+    app.activate(first)
+    candidate = second_release(app)
+    previous_launcher = (app.root / 'launch.sh').read_bytes()
+    launcher = app._launcher
+    monkeypatch.setattr(app, '_launcher', lambda: launcher() + b'# new manager version\n')
+    assert app.status()['integrity'] == 'verified'
+    app.activate(candidate)
+    assert (app.root / 'launch.sh').read_bytes() != previous_launcher
+    assert app.status()['selected'] == candidate and app.status()['integrity'] == 'verified'
+
+
+def test_failed_launcher_upgrade_restores_the_installed_version(shared_runtime, monkeypatch):
+    app = shared_runtime
+    first = app.prepare('HEAD')
+    app.activate(first)
+    candidate = second_release(app)
+    previous_launcher = (app.root / 'launch.sh').read_bytes()
+    launcher, probe = app._launcher, app._probe
+    monkeypatch.setattr(app, '_launcher', lambda: launcher() + b'# new manager version\n')
+    def fail_candidate(target, **kwargs):
+        if target == candidate and kwargs.get('launcher'):
+            raise deployment.SharedRuntimeError('candidate probe failed')
+        return probe(target, **kwargs)
+    monkeypatch.setattr(app, '_probe', fail_candidate)
+    with pytest.raises(deployment.SharedRuntimeError):
+        app.activate(candidate)
+    assert (app.root / 'launch.sh').read_bytes() == previous_launcher
+    assert app.status() == {'selected': first, 'previous': 'legacy', 'pending': False, 'integrity': 'verified'}
+
+
+def test_new_manager_can_recover_a_previous_launcher_version(shared_runtime, monkeypatch):
+    app = shared_runtime
+    first = app.prepare('HEAD')
+    app.activate(first)
+    candidate = second_release(app)
+    previous_launcher = (app.root / 'launch.sh').read_bytes()
+    with monkeypatch.context() as patch:
+        pointer = app._pointer
+        def interrupt(target):
+            pointer(target)
+            raise KeyboardInterrupt()
+        patch.setattr(app, '_pointer', interrupt)
+        with pytest.raises(KeyboardInterrupt):
+            app.activate(candidate)
+    launcher = app._launcher
+    monkeypatch.setattr(app, '_launcher', lambda: launcher() + b'# new manager version\n')
+    app.recover()
+    assert (app.root / 'launch.sh').read_bytes() == previous_launcher
+    assert app.status() == {'selected': first, 'previous': 'legacy', 'pending': False, 'integrity': 'verified'}

@@ -409,21 +409,28 @@ exec {command}
 
     def _state(self):
         path = self.control / 'state.json'
-        state = read_json(path) if path.exists() else {'selected': 'legacy', 'previous': None}
+        state = read_json(path) if path.exists() else {'selected': 'legacy', 'previous': None, 'launcher': None}
         return self._validate_state(state)
 
     def _validate_state(self, state):
-        if (not isinstance(state, dict) or set(state) != {'selected', 'previous'}
+        if (not isinstance(state, dict) or set(state) != {'selected', 'previous', 'launcher'}
                 or any(value is not None and value != 'legacy' and (not isinstance(value, str) or not SHA.fullmatch(value))
-                       for value in state.values()) or state['selected'] is None):
+                       for value in (state['selected'], state['previous'])) or state['selected'] is None):
             raise SharedRuntimeError('Invalid shared deployment state')
+        fingerprint = state['launcher']
+        if fingerprint is None:
+            if state['selected'] != 'legacy' or state['previous'] is not None:
+                raise SharedRuntimeError('Invalid shared deployment state')
+        elif (not isinstance(fingerprint, dict) or set(fingerprint) != {'sha256', 'mode'}
+                or fingerprint['mode'] != 0o700 or not isinstance(fingerprint['sha256'], str)
+                or not re.fullmatch(r'[0-9a-f]{64}', fingerprint['sha256'])):
+            raise SharedRuntimeError('Invalid installed launcher metadata')
         return state
 
     def _check_selected(self):
         state = self._state()
         current, launcher = self.root / 'current', self.root / 'launch.sh'
-        if launcher.is_symlink() or (launcher.exists() and
-                (launcher.read_bytes() != self._launcher() or launcher.stat().st_mode & 0o777 != 0o700)):
+        if launcher.is_symlink() or (launcher.exists() and file_info(launcher) != state['launcher']):
             raise SharedRuntimeError('Selected launcher integrity verification failed')
         if state['selected'] == 'legacy':
             self._check_legacy()
@@ -440,13 +447,14 @@ exec {command}
     def status(self):
         state = self._state()
         integrity = 'unmanaged'
-        if (self.control / 'legacy.json').exists():
+        if (self.control / 'legacy.json').exists() or (self.control / 'state.json').exists():
             try:
                 self._check_selected()
                 integrity = 'verified'
             except SharedRuntimeError:
                 integrity = 'invalid'
-        return {**state, 'pending': (self.control / 'pending.json').exists(), 'integrity': integrity}
+        return {'selected': state['selected'], 'previous': state['previous'],
+                'pending': (self.control / 'pending.json').exists(), 'integrity': integrity}
 
     def _pointer(self, target):
         current = self.root / 'current'
@@ -489,7 +497,7 @@ exec {command}
                 raise ValueError()
             saved_state = snapshot['state']
             state = self._validate_state(saved_state if saved_state is not None
-                else {'selected': 'legacy', 'previous': None})
+                else {'selected': 'legacy', 'previous': None, 'launcher': None})
             target = snapshot['target']
             expected = None if state['selected'] == 'legacy' else str(self.root / 'releases' / state['selected'])
             if target != expected:
@@ -503,6 +511,8 @@ exec {command}
                 if (not isinstance(launcher, dict) or set(launcher) != {'content', 'mode', 'sha256'}
                         or launcher['mode'] != 0o700
                         or hashlib.sha256(bytes.fromhex(launcher['content'])).hexdigest() != launcher['sha256']):
+                    raise ValueError()
+                if {key: launcher[key] for key in ('sha256', 'mode')} != state['launcher']:
                     raise ValueError()
         except (KeyError, TypeError, ValueError, SharedRuntimeError):
             raise SharedRuntimeError('Invalid recovery snapshot; journal retained') from None
@@ -543,10 +553,13 @@ exec {command}
             self._probe('legacy', probe_revision=probe_revision)
         self._snapshot(probe_revision)
         try:
-            atomic_write(self.root / 'launch.sh', self._launcher(), 0o700)
+            launcher = self._launcher()
+            fingerprint = {'sha256': hashlib.sha256(launcher).hexdigest(), 'mode': 0o700}
+            atomic_write(self.root / 'launch.sh', launcher, 0o700)
             self._pointer(None if target == 'legacy' else self.root / 'releases' / target)
             self._probe(target, launcher=True, probe_revision=probe_revision)
-            write_json(self.control / 'state.json', {'selected': target, 'previous': state['selected']})
+            write_json(self.control / 'state.json', {'selected': target, 'previous': state['selected'],
+                       'launcher': fingerprint})
             self._check_selected()
             self._history('selected', selected=target, previous=state['selected'])
             self._clear_pending()

@@ -26,6 +26,9 @@ The root retains the original source and metadata for legacy rollback. Managed
 environments go under `releases/`; `current` selects one, and `launch.sh` starts
 it. Private state, the original startup record, a transition journal, and
 content-free history are under `deploy-shared/`. Old releases stay available.
+The selected state records the installed launcher's checksum independently of the
+current manager's template. A journaled transition can replace that launcher and
+its recorded checksum, while recovery restores the saved installed version.
 Build environments at their final paths; do not move them or edit them in place.
 Preparation reads the recorded commit's tracked tree and blob objects directly,
 ignoring Git replacement objects and archive attributes, including `export-ignore`
@@ -161,9 +164,12 @@ failure result. If recovery verification fails or a process is interrupted,
 
 Recovery validates the private snapshot structure and saved launcher checksum,
 including that adopted states have a launcher and the initial state has none.
-It then restores the saved pointer, launcher, and state before validating the legacy
-record, connection profile, or CA bundle. If any is unavailable or changed, the
-saved route stays restored and the journal remains until verification can succeed.
+It then restores the saved pointer, launcher, and state before checking the restored
+route or connection settings. A managed route uses its recorded launcher checksum
+without requiring the current manager's template or legacy fallback metadata.
+Legacy recovery verifies the retained legacy record. If required settings or files
+are unavailable or changed, the saved route stays restored and the journal remains
+until verification can succeed.
 It uses the previous managed release's probe, or an intact prepared environment
 for legacy recovery. If no probe environment is usable, the old route stays
 restored and the journal remains. The journal clears only after verification.
