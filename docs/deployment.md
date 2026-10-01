@@ -8,6 +8,10 @@ for deployment and recovery commands.
 For the shared stdio installation, use the separate
 [shared deployment runbook](shared-deployment.md).
 
+The [source release policy](releases.md) defines date tags and GitHub Releases.
+This runbook identifies runtime releases by full source commit SHA; record that
+SHA and the source tag, when available, for each deployment.
+
 ## Layout
 
 Under `~/.local/share/obsidian-chatgpt-mcp/`:

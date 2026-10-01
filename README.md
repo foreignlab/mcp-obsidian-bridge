@@ -257,6 +257,8 @@ Tests use mocks, temporary files, and local HTTP/HTTPS fixtures. They require lo
 
 Report bugs and suggest improvements in [this fork's Issues](https://github.com/foreignlab/mcp-obsidian-bridge/issues). Include the affected client, plugin version, and a reproducible example with secrets and private note contents removed. **External pull requests are not accepted.** Maintainer changes still use pull requests for CI and review. This project is maintained for personal use, without a general support commitment.
 
+Reviewed source snapshots use date tags and GitHub Releases; see the [release policy](docs/releases.md). Source publication and deployment to the two client runtimes are separate operations.
+
 ## License and attribution
 
 Based on [MarkusPfundstein/mcp-obsidian](https://github.com/MarkusPfundstein/mcp-obsidian). The original project's [MIT license](LICENSE) and attribution are retained.

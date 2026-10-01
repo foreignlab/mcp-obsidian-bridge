@@ -93,6 +93,9 @@ in the task. Before removing one, verify it contains no unmerged or uncommitted 
 
 ## Deployment and upstream work
 
+For source tags and GitHub Releases, follow the [release policy](releases.md).
+Source releases use publication dates; runtime deployments record exact commits.
+
 Merge and deployment are separate operations. For authorized ChatGPT deployment,
 use [the deployment runbook](deployment.md); do not hand-edit prepared releases or
 runtime pointers. That runbook does not update the shared-client installation.
