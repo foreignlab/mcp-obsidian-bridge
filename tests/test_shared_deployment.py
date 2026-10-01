@@ -928,7 +928,8 @@ def test_recovery_restores_managed_snapshot_before_unrelated_legacy_metadata_che
     assert subprocess.check_output([str(app.root / 'launch.sh')]) == b'managed\n'
 
 
-def test_recovery_rejects_corrupted_launcher_snapshot_before_switching(shared_runtime, monkeypatch):
+@pytest.mark.parametrize('corruption', ['content', 'empty-state'])
+def test_recovery_rejects_corrupted_launcher_snapshot_before_switching(shared_runtime, monkeypatch, corruption):
     app = shared_runtime
     first = app.prepare('HEAD')
     app.activate(first)
@@ -943,9 +944,41 @@ def test_recovery_rejects_corrupted_launcher_snapshot_before_switching(shared_ru
             app.activate(candidate)
     path = app.control / 'pending.json'
     data = json.loads(path.read_text())
-    data['launcher']['content'] = b'corrupted launcher'.hex()
+    if corruption == 'content':
+        data['launcher']['content'] = b'corrupted launcher'.hex()
+    else:
+        data['state'] = {}
     deployment.write_json(path, data)
     with pytest.raises(deployment.SharedRuntimeError, match='Invalid recovery snapshot'):
         app.recover()
     assert (app.root / 'current').resolve() == app.root / 'releases' / candidate
     assert path.exists()
+
+
+@pytest.mark.parametrize('saved_route', ['managed', 'legacy', 'initial'])
+def test_recovery_rejects_launcher_presence_inconsistent_with_saved_state(shared_runtime, monkeypatch, saved_route):
+    app = shared_runtime
+    first = app.prepare('HEAD')
+    if saved_route != 'initial':
+        app.activate(first)
+        if saved_route == 'legacy':
+            app.rollback()
+    candidate = second_release(app)
+    with monkeypatch.context() as patch:
+        pointer = app._pointer
+        def interrupt(target):
+            pointer(target)
+            raise KeyboardInterrupt()
+        patch.setattr(app, '_pointer', interrupt)
+        with pytest.raises(KeyboardInterrupt):
+            app.activate(candidate)
+    path = app.control / 'pending.json'
+    data = json.loads(path.read_text())
+    launcher = app.root / 'launch.sh'
+    data['launcher'] = ({'content': launcher.read_bytes().hex(), **deployment.file_info(launcher)}
+        if saved_route == 'initial' else None)
+    deployment.write_json(path, data)
+    with pytest.raises(deployment.SharedRuntimeError, match='Invalid recovery snapshot'):
+        app.recover()
+    assert (app.root / 'current').resolve() == app.root / 'releases' / candidate
+    assert launcher.exists() and path.exists()

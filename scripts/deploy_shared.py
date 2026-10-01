@@ -394,7 +394,8 @@ exec {command}
             raise SharedRuntimeError('Selected launcher integrity verification failed')
         if state['selected'] == 'legacy':
             self._check_legacy()
-            if current.exists() or current.is_symlink() or ((self.control / 'state.json').exists() and not launcher.is_file()):
+            if (current.exists() or current.is_symlink()
+                    or (self.control / 'state.json').exists() != launcher.is_file()):
                 raise SharedRuntimeError('Selected pointer integrity verification failed')
         else:
             self._manifest(state['selected'])
@@ -451,7 +452,11 @@ exec {command}
     def _restore(self):
         snapshot = read_json(self.control / 'pending.json')
         try:
-            state = self._validate_state(snapshot['state'] or {'selected': 'legacy', 'previous': None})
+            if not isinstance(snapshot, dict) or set(snapshot) != {'state', 'target', 'launcher', 'probe_revision'}:
+                raise ValueError()
+            saved_state = snapshot['state']
+            state = self._validate_state(saved_state if saved_state is not None
+                else {'selected': 'legacy', 'previous': None})
             target = snapshot['target']
             expected = None if state['selected'] == 'legacy' else str(self.root / 'releases' / state['selected'])
             if target != expected:
@@ -459,10 +464,14 @@ exec {command}
             if not isinstance(snapshot['probe_revision'], str) or not SHA.fullmatch(snapshot['probe_revision']):
                 raise ValueError()
             launcher = snapshot['launcher']
-            if launcher is not None and (launcher['mode'] != 0o700
-                    or hashlib.sha256(bytes.fromhex(launcher['content'])).hexdigest() != launcher['sha256']):
+            if (launcher is None) != (saved_state is None):
                 raise ValueError()
-        except (KeyError, TypeError, ValueError):
+            if launcher is not None:
+                if (not isinstance(launcher, dict) or set(launcher) != {'content', 'mode', 'sha256'}
+                        or launcher['mode'] != 0o700
+                        or hashlib.sha256(bytes.fromhex(launcher['content'])).hexdigest() != launcher['sha256']):
+                    raise ValueError()
+        except (KeyError, TypeError, ValueError, SharedRuntimeError):
             raise SharedRuntimeError('Invalid recovery snapshot; journal retained') from None
         self._pointer(target)
         path = self.root / 'launch.sh'
