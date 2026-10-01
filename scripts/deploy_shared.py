@@ -334,8 +334,11 @@ for variable in $(/usr/bin/env | /usr/bin/awk -F= '$1 ~ /^(PYTHON[A-Za-z0-9_]*|U
 done
 unset __PYVENV_LAUNCHER__ VIRTUAL_ENV
 base={shlex.quote(str(self.root))}
-if [ -L "$base/current" ]; then
-    release=$(CDPATH= cd -- "$base/current" && pwd -P)
+if release=$(/usr/bin/readlink "$base/current" 2>/dev/null); then
+    case "$release" in
+        /*) ;;
+        *) release="$base/$release" ;;
+    esac
     cd "$release"
     exec "$release/.venv/bin/mcp-obsidian"
 fi

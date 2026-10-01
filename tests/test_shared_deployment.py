@@ -732,3 +732,19 @@ def test_import_bytecode_does_not_invalidate_runtime_fingerprint(shared_runtime,
     subprocess.run([str(release / '.venv/bin/python'), '-I', '-c', 'import dependency'], check=True)
     assert list((release / '.venv').rglob('dependency*.pyc'))
     app._manifest(revision)
+
+
+def test_launcher_survives_pointer_removal_before_entering_release(shared_runtime, tmp_path):
+    app = shared_runtime
+    revision = app.prepare('HEAD')
+    app.activate(revision)
+    # Remove the pointer at the directory-entry boundary, like legacy rollback.
+    boundary = b'cd() { /bin/rm -f "$base/current"; command cd "$@"; }\n'
+    launcher = tmp_path / 'launch-with-boundary.sh'
+    launcher.write_bytes(app._launcher().replace(b'#!/bin/sh\n', b'#!/bin/sh\n' + boundary, 1))
+    launcher.chmod(0o700)
+    first = subprocess.run([str(launcher)], capture_output=True)
+    assert first.returncode == 0, first.stderr
+    assert first.stdout == b'managed\n'
+    assert not (app.root / 'current').is_symlink()
+    assert subprocess.check_output([str(launcher)]) == b'legacy\n'
