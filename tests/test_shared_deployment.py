@@ -748,3 +748,30 @@ def test_launcher_survives_pointer_removal_before_entering_release(shared_runtim
     assert first.stdout == b'managed\n'
     assert not (app.root / 'current').is_symlink()
     assert subprocess.check_output([str(launcher)]) == b'legacy\n'
+
+
+def test_sourceless_startup_bytecode_invalidates_runtime_before_execution(shared_runtime, monkeypatch, tmp_path):
+    import py_compile
+    app = shared_runtime
+    def build(release):
+        python, _ = real_package_environment(release)
+        write_python_entry(release / '.venv/bin/mcp-obsidian', python, 'print("managed")\n')
+    monkeypatch.setattr(app, '_build', build)
+    revision = app.prepare('HEAD')
+    app.activate(revision)
+    release = app.root / 'releases' / revision
+    python = release / '.venv/bin/python'
+    site = Path(subprocess.check_output([str(python), '-I', '-c',
+        'import sysconfig; print(sysconfig.get_paths()["purelib"])']).decode().strip())
+    marker = tmp_path / 'startup-executed'
+    source = tmp_path / 'sitecustomize.py'
+    source.write_text(f'from pathlib import Path\nPath({str(marker)!r}).touch()\n')
+    py_compile.compile(str(source), cfile=str(site / 'sitecustomize.pyc'), doraise=True)
+    source.unlink()
+    assert app.status()['integrity'] == 'invalid'
+    with pytest.raises(deployment.SharedRuntimeError, match='integrity'):
+        app.prepare(revision)
+    assert not marker.exists()
+    # Demonstrate why this file cannot be treated as a disposable import cache.
+    assert subprocess.check_output([str(app.root / 'launch.sh')]) == b'managed\n'
+    assert marker.exists()

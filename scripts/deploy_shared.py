@@ -221,16 +221,16 @@ print(json.dumps(files))
             raise SharedRuntimeError('Installed package integrity verification failed') from None
 
     def _verify_installed(self, release, manifest):
-        expected = {name.removeprefix('src/'): info['sha256'] for name, info in manifest['files'].items()
-                    if name.startswith('src/mcp_obsidian/') and name.endswith('.py')}
-        if not expected or self._installed_inventory(release) != expected:
-            raise SharedRuntimeError('Installed package integrity verification failed')
         entrypoint = release / '.venv/bin/mcp-obsidian'
         if (not os.access(entrypoint, os.X_OK) or entrypoint.is_symlink()
                 or manifest.get('entrypoint') != file_info(entrypoint)):
             raise SharedRuntimeError('Installed entry point integrity verification failed')
         if manifest.get('runtime') != self._runtime_inventory(release):
             raise SharedRuntimeError('Installed environment integrity verification failed')
+        expected = {name.removeprefix('src/'): info['sha256'] for name, info in manifest['files'].items()
+                    if name.startswith('src/mcp_obsidian/') and name.endswith('.py')}
+        if not expected or self._installed_inventory(release) != expected:
+            raise SharedRuntimeError('Installed package integrity verification failed')
 
     def _runtime_inventory(self, release):
         environment = release / '.venv'
@@ -239,7 +239,7 @@ print(json.dumps(files))
         files = {}
         for path in environment.rglob('*'):
             relative = path.relative_to(environment)
-            if '__pycache__' in relative.parts or path.suffix in ('.pyc', '.pyo'):
+            if '__pycache__' in relative.parts:
                 continue
             if path.is_symlink():
                 files[str(relative)] = {'symlink': hashlib.sha256(os.readlink(path).encode()).hexdigest(),
