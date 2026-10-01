@@ -1057,3 +1057,24 @@ def test_preparation_does_not_rebuild_selected_environment_with_changed_status(s
     with pytest.raises(deployment.SharedRuntimeError):
         app.prepare(revision)
     assert app._runtime_inventory(release) == before
+
+
+@pytest.mark.parametrize('attributes', ['info', 'config', 'committed'])
+def test_preparation_uses_committed_blobs_without_archive_attributes(shared_runtime, tmp_path, attributes):
+    app = shared_runtime
+    (app.repo / 'docs').mkdir()
+    (app.repo / 'docs/retained.md').write_text('reviewed content\n')
+    if attributes == 'committed':
+        (app.repo / '.gitattributes').write_text('docs/retained.md export-ignore\n')
+    git(app.repo, 'add', '.')
+    git(app.repo, 'commit', '-qm', 'reviewed document')
+    if attributes == 'info':
+        (app.repo / '.git/info/attributes').write_text('docs/retained.md export-ignore\n')
+    elif attributes == 'config':
+        path = tmp_path / 'local-attributes'
+        path.write_text('docs/retained.md export-ignore\n')
+        git(app.repo, 'config', 'core.attributesFile', str(path))
+    assert git(app.repo, 'status', '--porcelain') == ''
+    revision = app.prepare('HEAD')
+    release = app.root / 'releases' / revision
+    assert (release / 'docs/retained.md').read_text() == 'reviewed content\n'

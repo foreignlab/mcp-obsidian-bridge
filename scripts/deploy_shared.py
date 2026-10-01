@@ -151,6 +151,24 @@ class SharedDeployment:
                 files[str(relative)] = file_info(path)
         return files
 
+    def _source_archive(self, revision):
+        entries = self._run(['git', 'ls-tree', '-r', '-z', '--full-tree', revision])
+        data = io.BytesIO()
+        with tarfile.open(fileobj=data, mode='w') as archive:
+            for entry in entries.split(b'\0'):
+                if not entry:
+                    continue
+                metadata, name = entry.split(b'\t', 1)
+                mode, kind, object_id = metadata.decode('ascii').split()
+                if kind != 'blob' or mode not in ('100644', '100755'):
+                    raise SharedRuntimeError('Unsupported tracked source entry')
+                content = self._run(['git', 'cat-file', 'blob', object_id])
+                member = tarfile.TarInfo(os.fsdecode(name))
+                member.mode = int(mode, 8) & 0o755
+                member.size = len(content)
+                archive.addfile(member, io.BytesIO(content))
+        return data.getvalue()
+
     def _legacy_inventory(self):
         paths = [self.root / 'pyproject.toml', self.root / 'uv.lock']
         package = self.root / 'src/mcp_obsidian'
@@ -336,7 +354,7 @@ print(json.dumps(files))
                 with tempfile.TemporaryDirectory(prefix='.prepare-', dir=release.parent) as temporary:
                     staging = Path(temporary) / 'source'
                     staging.mkdir(mode=0o700)
-                    extract_source(self._run(['git', 'archive', revision]), staging)
+                    extract_source(self._source_archive(revision), staging)
                     manifest = {'revision': revision, 'status': 'preparing', 'files': self._inventory(staging)}
                     write_json(staging / 'release.json', manifest)
                     os.rename(staging, release)

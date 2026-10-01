@@ -27,8 +27,9 @@ environments go under `releases/`; `current` selects one, and `launch.sh` starts
 it. Private state, the original startup record, a transition journal, and
 content-free history are under `deploy-shared/`. Old releases stay available.
 Build environments at their final paths; do not move them or edit them in place.
-Preparation ignores repository-local Git replacement objects so the archived tree
-matches the recorded commit. Retrying an incomplete preparation recreates its
+Preparation reads the recorded commit's tracked tree and blob objects directly,
+ignoring Git replacement objects and archive attributes, including `export-ignore`
+and `export-subst`. Retrying an incomplete preparation recreates its
 partial virtual environment before building; it does not reuse or certify leftover
 files. Already selected or retained environments cannot be rebuilt this way.
 
