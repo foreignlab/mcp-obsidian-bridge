@@ -100,6 +100,8 @@ Merge and deployment are separate operations. For authorized ChatGPT deployment,
 use [the deployment runbook](deployment.md); do not hand-edit prepared releases or
 runtime pointers. That runbook does not update the shared-client installation.
 If both clients need a fix, identify and verify each deployment separately.
+For shared stdio updates and initial launcher adoption, use the
+[shared deployment runbook](shared-deployment.md).
 
 Use [fork maintenance](upstream/maintenance.md) when importing upstream changes.
 Keep upstream-compatible fixes distinct from gateway and deployment policy.
