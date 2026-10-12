@@ -46,7 +46,7 @@ For the write example, create `000_Inbox` in the Vault and include it in the gat
 
 ### Shared requirements
 
-This guide covers macOS and Linux. Windows is currently outside this fork's tested and documented scope.
+This guide covers macOS and Linux. Local clients in a WSL 2 distribution with mirrored networking can reach Obsidian on Windows; see [WSL 2 with Obsidian on Windows](docs/shared-installation.md#wsl-2-with-obsidian-on-windows). Native Windows clients are outside this fork's tested and documented scope.
 
 For both ChatGPT and local clients:
 

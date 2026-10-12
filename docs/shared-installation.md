@@ -1,16 +1,16 @@
 # Installing the managed shared client
 
-Use this guide on a new macOS or Linux PC to reproduce the managed shared
-stdio layout. Codex, Claude Code, and Claude Desktop use the same launcher;
-each PC builds its own environments from the selected source SHA. Windows is
-outside the tested scope. This procedure does not install the ChatGPT gateway.
+Use this guide on a new macOS or Linux PC, including a WSL 2 distribution, to
+reproduce the managed shared stdio layout. Codex, Claude Code, and Claude Desktop
+use the same launcher; each PC builds its own environments from the selected
+source SHA. Native Windows clients are outside the tested scope. This procedure
+does not install the ChatGPT gateway.
 
 If `~/.local/share/mcp-obsidian-bridge/` already exists, use the
 [shared deployment runbook](shared-deployment.md) to inspect and update it.
 Do not run the bootstrap commands over an existing runtime. An installation at
-the former default `~/.local/share/mcp-obsidian-tls/` is a separate runtime:
-this guide does not move or replace it, and its clients keep using it until
-their settings are changed.
+the former default `~/.local/share/mcp-obsidian-tls/` is a separate runtime;
+to move it, see [Moving from the former default root](#moving-from-the-former-default-root).
 
 ## Layout and prerequisites
 
@@ -44,18 +44,41 @@ the API's public CA certificate, or its self-signed server certificate, as
 trust the same public certificate. Each connection hostname or IP must match
 the server certificate; never copy its private key.
 
+### WSL 2 with Obsidian on Windows
+
+Run the commands in the WSL distribution, and configure the clients that run
+there. This requires WSL mirrored networking, available on Windows 11 22H2 or
+later; it lets WSL reach the Windows host at `127.0.0.1`, and it is the only
+networking mode tested here. With the default NAT networking, `127.0.0.1` inside
+WSL is not the Windows host. Add the setting under the `[wsl2]` section of the
+Windows user's `%UserProfile%\.wslconfig`:
+
+```ini
+[wsl2]
+networkingMode=mirrored
+```
+
+Then run `wsl --shutdown` from Windows and open the distribution again; the
+setting takes effect only after WSL restarts.
+
+In Obsidian on Windows, set the Local REST API **Binding host** to `127.0.0.1`
+unless other machines must reach the API. With `0.0.0.0`, the API accepts
+connections from the LAN unless the Windows firewall blocks them. Use
+`OBSIDIAN_HOST` `127.0.0.1` and confirm that the certificate covers it. Copy the
+certificate from the plugin settings on Windows into the WSL file above, then
+run the README TLS check from WSL.
+
 ## 1. Select the source
 
 Run the steps in the same shell, one command at a time, and stop on any failure.
-The example selects the reviewed initial
-baseline below; replace it with another reviewed full SHA or published source
-tag when updating the installation target.
+The example selects the reviewed revision below; replace it with another
+reviewed full SHA or published source tag when updating the installation target.
 
 ```sh
 BRIDGE_SOURCE="$HOME/Documents/ghq/github.com/foreignlab/mcp-obsidian-bridge"
 BRIDGE_ROOT="$HOME/.local/share/mcp-obsidian-bridge"
 BRIDGE_PROFILE="$HOME/.config/mcp-obsidian-bridge/shared-client.json"
-BRIDGE_REF=4766d8275e9a729a7a00ae87415c500a3c66795a
+BRIDGE_REF=50251e9f2d7d8dc684199c484466ee3f0422726b
 
 git clone https://github.com/foreignlab/mcp-obsidian-bridge.git "$BRIDGE_SOURCE"
 git -C "$BRIDGE_SOURCE" checkout --detach "$BRIDGE_REF"
@@ -65,8 +88,11 @@ uv --directory "$BRIDGE_SOURCE" sync --locked --no-dev --no-editable --python 3.
 
 If you already have a clean maintenance checkout, set `BRIDGE_SOURCE` to that
 path and select the reviewed revision there instead of cloning again. Do not
-switch a checkout being used by another development session. The source `.venv`
-is the operator environment, not the client's execution environment.
+switch a checkout being used by another development session. Still set
+`BRIDGE_REVISION`, which later steps use. The source `.venv` is the operator
+environment, not the client's execution environment. The manager needs only the
+standard library, so you can skip the sync and keep an existing development
+environment in that checkout.
 
 ## 2. Create the retained initial environment
 
@@ -240,3 +266,36 @@ Restore client configuration backups if reverting the client's setup itself;
 that is separate from selecting an earlier runtime with the manager. Keep the
 initial environment, retained releases, certificate, and private state available.
 Do not copy prepared environments or deployment state between PCs.
+
+## Moving from the former default root
+
+Use this on a PC whose clients launch `~/.local/share/mcp-obsidian-tls/launch.sh`.
+The move builds a new runtime with this guide and switches clients to it. It does
+not convert the old root, and the old root's state cannot be rolled back from the
+new one.
+
+1. From the source checkout, check the old installation with
+   `.venv/bin/python scripts/deploy_shared.py --root "$HOME/.local/share/mcp-obsidian-tls" status`.
+   Require `pending` to be false; otherwise, resolve it first as described in
+   [Rollback and recovery](shared-deployment.md#rollback-and-recovery) with that `--root`.
+2. Create the private directory as in the prerequisites. Find the certificate
+   file that the clients' `REQUESTS_CA_BUNDLE` names, and copy it, rather than
+   moving it, to `~/.config/mcp-obsidian-bridge/obsidian-ca.crt`.
+   Run the README TLS check against the clients' current `OBSIDIAN_HOST`.
+3. Follow steps 1 to 4 of this guide. In the operator profile, reuse the clients'
+   current connection values, including `OBSIDIAN_HOST`, and use the new
+   certificate path. The first rollback of the new root selects its own initial
+   environment, not the old installation.
+4. In step 5, change each client's `command` to the new `launch.sh`, its `args`
+   to empty, and its `REQUESTS_CA_BUNDLE` to the new path. Keep its other settings, such as
+   timeouts and tool approvals. Clients still using the upstream package also
+   need the full connection environment. Then verify each client as in step 6.
+5. If a ChatGPT gateway on the same PC names the old certificate in its
+   `connection.json`, change only `REQUESTS_CA_BUNDLE`, keep mode `0600`, and
+   restart the Tunnel as described in the [gateway guide](../chatgpt/README.md#configuration-and-startup).
+   Verify a ChatGPT tool call and its gateway diagnostic record as after a
+   [gateway activation](deployment.md#activate).
+
+Keep the old root and certificate after the move. Clients that have not
+reconnected still run from the old root, and restored client backups point to it.
+A gateway's retained original launcher can also load the old root.

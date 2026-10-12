@@ -5,7 +5,9 @@ This runbook manages an existing shared installation at
 has its own locked environment. A stable launcher selects the environment for
 new client connections. [ChatGPT deployment](deployment.md) has a separate
 runtime and procedure. To manage an installation at the former default
-`~/.local/share/mcp-obsidian-tls/`, pass `--root` with that path.
+`~/.local/share/mcp-obsidian-tls/`, pass `--root` with that path. To replace
+it with the current layout, see
+[Moving from the former default root](shared-installation.md#moving-from-the-former-default-root).
 
 For a new PC with no shared runtime, start with
 [Installing the managed shared client](shared-installation.md). It creates a
