@@ -402,6 +402,14 @@ def test_cli_status_needs_no_credentials_and_masks_failures(tmp_path, capsys):
     assert 'error' in output.err and 'Traceback' not in output.err
 
 
+@pytest.mark.parametrize('command', ['status', 'recover'])
+def test_cli_refuses_missing_root_without_creating_it(tmp_path, capsys, command):
+    root = tmp_path / 'missing-runtime'
+    assert deployment.main(['--root', str(root), '--repo', str(tmp_path), command]) == 1
+    assert 'root does not exist' in json.loads(capsys.readouterr().err)['error']
+    assert not root.exists()
+
+
 def test_no_previous_target_has_fixed_error(shared_runtime):
     with pytest.raises(deployment.SharedRuntimeError, match='previous'):
         shared_runtime.rollback()

@@ -1,9 +1,9 @@
 # Deploying the ChatGPT gateway
 
 Deployment is local and commit-addressed. The ChatGPT runtime has its own
-virtual environment; the shared `~/.local/share/mcp-obsidian-tls` installation
-used by other clients is not modified. Keep the working checkout available
-for deployment and recovery commands.
+virtual environment; the shared stdio installation used by other clients is
+not modified. Keep the working checkout available for deployment and recovery
+commands.
 
 For the shared stdio installation, use the separate
 [shared deployment runbook](shared-deployment.md).

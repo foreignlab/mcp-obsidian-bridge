@@ -5,20 +5,23 @@ stdio layout. Codex, Claude Code, and Claude Desktop use the same launcher;
 each PC builds its own environments from the selected source SHA. Windows is
 outside the tested scope. This procedure does not install the ChatGPT gateway.
 
-If `~/.local/share/mcp-obsidian-tls/` already exists, use the
+If `~/.local/share/mcp-obsidian-bridge/` already exists, use the
 [shared deployment runbook](shared-deployment.md) to inspect and update it.
-Do not run the bootstrap commands over an existing runtime.
+Do not run the bootstrap commands over an existing runtime. An installation at
+the former default `~/.local/share/mcp-obsidian-tls/` is a separate runtime:
+this guide does not move or replace it, and its clients keep using it until
+their settings are changed.
 
 ## Layout and prerequisites
 
 | Location | Purpose |
 | --- | --- |
 | A separate source checkout | Reviewed Git objects and maintenance commands |
-| `~/.local/share/mcp-obsidian-tls/` | Retained initial source and Python environment for first rollback |
-| `~/.local/share/mcp-obsidian-tls/releases/<SHA>/` | Managed source snapshot and locked, non-editable `.venv` |
-| `~/.local/share/mcp-obsidian-tls/launch.sh` | Fixed client startup command |
-| `~/.local/share/mcp-obsidian-tls/deploy-shared/` | Private selection, original startup record, and recovery state |
-| `~/.config/mcp-obsidian/` | Private operator profile and trusted public certificate |
+| `~/.local/share/mcp-obsidian-bridge/` | Retained initial source and Python environment for first rollback |
+| `~/.local/share/mcp-obsidian-bridge/releases/<SHA>/` | Managed source snapshot and locked, non-editable `.venv` |
+| `~/.local/share/mcp-obsidian-bridge/launch.sh` | Fixed client startup command |
+| `~/.local/share/mcp-obsidian-bridge/deploy-shared/` | Private selection, original startup record, and recovery state |
+| `~/.config/mcp-obsidian-bridge/` | Private operator profile and trusted public certificate |
 
 The source checkout may live in your usual code directory. It is separate from
 the runtime; changing its branch does not change the selected release. The
@@ -31,13 +34,13 @@ by this fork's CI. uv installation and dependency setup can access the network.
 Keep Obsidian running with the target Vault open and Local REST API enabled.
 
 ```sh
-mkdir -p "$HOME/.config/mcp-obsidian"
-chmod 700 "$HOME/.config/mcp-obsidian"
+mkdir -p "$HOME/.config/mcp-obsidian-bridge"
+chmod 700 "$HOME/.config/mcp-obsidian-bridge"
 ```
 
 Use the [README certificate setup](../README.md#tls-certificate-setup) to save
 the API's public CA certificate, or its self-signed server certificate, as
-`~/.config/mcp-obsidian/obsidian-ca.crt`. PCs connecting to the same API can
+`~/.config/mcp-obsidian-bridge/obsidian-ca.crt`. PCs connecting to the same API can
 trust the same public certificate. Each connection hostname or IP must match
 the server certificate; never copy its private key.
 
@@ -50,8 +53,8 @@ tag when updating the installation target.
 
 ```sh
 BRIDGE_SOURCE="$HOME/Documents/ghq/github.com/foreignlab/mcp-obsidian-bridge"
-BRIDGE_ROOT="$HOME/.local/share/mcp-obsidian-tls"
-BRIDGE_PROFILE="$HOME/.config/mcp-obsidian/shared-client.json"
+BRIDGE_ROOT="$HOME/.local/share/mcp-obsidian-bridge"
+BRIDGE_PROFILE="$HOME/.config/mcp-obsidian-bridge/shared-client.json"
 BRIDGE_REF=4766d8275e9a729a7a00ae87415c500a3c66795a
 
 git clone https://github.com/foreignlab/mcp-obsidian-bridge.git "$BRIDGE_SOURCE"
@@ -103,15 +106,15 @@ do not put the API key in a shell command or commit this file.
 {
   "mcpServers": {
     "obsidian": {
-      "command": "/absolute/home/.local/share/mcp-obsidian-tls/.venv/bin/mcp-obsidian",
+      "command": "/absolute/home/.local/share/mcp-obsidian-bridge/.venv/bin/mcp-obsidian",
       "args": [],
-      "cwd": "/absolute/home/.local/share/mcp-obsidian-tls",
+      "cwd": "/absolute/home/.local/share/mcp-obsidian-bridge",
       "env": {
         "OBSIDIAN_API_KEY": "REPLACE_LOCALLY",
         "OBSIDIAN_HOST": "127.0.0.1",
         "OBSIDIAN_PORT": "27124",
         "OBSIDIAN_PROTOCOL": "https",
-        "REQUESTS_CA_BUNDLE": "/absolute/home/.config/mcp-obsidian/obsidian-ca.crt"
+        "REQUESTS_CA_BUNDLE": "/absolute/home/.config/mcp-obsidian-bridge/obsidian-ca.crt"
       }
     }
   }
@@ -191,7 +194,7 @@ Use an absolute launcher path and empty arguments for all clients. For Codex:
 
 ```toml
 [mcp_servers.obsidian]
-command = "/absolute/home/.local/share/mcp-obsidian-tls/launch.sh"
+command = "/absolute/home/.local/share/mcp-obsidian-bridge/launch.sh"
 args = []
 
 [mcp_servers.obsidian.env]
@@ -199,7 +202,7 @@ OBSIDIAN_API_KEY = "REPLACE_LOCALLY"
 OBSIDIAN_HOST = "127.0.0.1"
 OBSIDIAN_PORT = "27124"
 OBSIDIAN_PROTOCOL = "https"
-REQUESTS_CA_BUNDLE = "/absolute/home/.config/mcp-obsidian/obsidian-ca.crt"
+REQUESTS_CA_BUNDLE = "/absolute/home/.config/mcp-obsidian-bridge/obsidian-ca.crt"
 ```
 
 For either JSON client, use the [README client example](../README.md#local-client-configuration).

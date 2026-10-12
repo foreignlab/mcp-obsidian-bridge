@@ -616,7 +616,7 @@ exec {command}
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--root', type=Path, default=Path.home() / '.local/share/mcp-obsidian-tls')
+    parser.add_argument('--root', type=Path, default=Path.home() / '.local/share/mcp-obsidian-bridge')
     parser.add_argument('--repo', type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument('--client-config', type=Path)
     parser.add_argument('--server')
@@ -632,6 +632,8 @@ def main(argv=None):
     try:
         if command not in ('prepare', 'activate') and revision is not None:
             raise SharedRuntimeError('This command does not accept a source revision')
+        if not app.root.is_dir():
+            raise SharedRuntimeError('Shared runtime root does not exist; check --root')
         if command not in ('status', 'recover'):
             app._profile()
         if command in ('prepare', 'activate'):

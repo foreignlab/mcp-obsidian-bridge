@@ -1,10 +1,11 @@
 # Deploying the shared stdio client
 
 This runbook manages an existing shared installation at
-`~/.local/share/mcp-obsidian-tls/` on macOS or Linux. Each managed source commit
+`~/.local/share/mcp-obsidian-bridge/` on macOS or Linux. Each managed source commit
 has its own locked environment. A stable launcher selects the environment for
 new client connections. [ChatGPT deployment](deployment.md) has a separate
-runtime and procedure.
+runtime and procedure. To manage an installation at the former default
+`~/.local/share/mcp-obsidian-tls/`, pass `--root` with that path.
 
 For a new PC with no shared runtime, start with
 [Installing the managed shared client](shared-installation.md). It creates a
@@ -99,7 +100,7 @@ existing connection environment. For example:
 
 ```toml
 [mcp_servers.obsidian]
-command = "/absolute/path/to/mcp-obsidian-tls/launch.sh"
+command = "/absolute/home/.local/share/mcp-obsidian-bridge/launch.sh"
 args = []
 # Keep the existing [mcp_servers.obsidian.env] table and its private values.
 ```
