@@ -47,10 +47,19 @@ the server certificate; never copy its private key.
 ### WSL 2 with Obsidian on Windows
 
 Run the commands in the WSL distribution, and configure the clients that run
-there. Set `networkingMode=mirrored` in the Windows user's `.wslconfig`; it lets
-WSL reach the Windows host at `127.0.0.1`, and it is the only networking mode
-tested here. With the default NAT networking, `127.0.0.1` inside WSL is not the
-Windows host.
+there. This requires WSL mirrored networking, available on Windows 11 22H2 or
+later; it lets WSL reach the Windows host at `127.0.0.1`, and it is the only
+networking mode tested here. With the default NAT networking, `127.0.0.1` inside
+WSL is not the Windows host. Add the setting under the `[wsl2]` section of the
+Windows user's `%UserProfile%\.wslconfig`:
+
+```ini
+[wsl2]
+networkingMode=mirrored
+```
+
+Then run `wsl --shutdown` from Windows and open the distribution again; the
+setting takes effect only after WSL restarts.
 
 In Obsidian on Windows, set the Local REST API **Binding host** to `127.0.0.1`
 unless other machines must reach the API. With `0.0.0.0`, the API accepts
