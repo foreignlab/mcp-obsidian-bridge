@@ -8,13 +8,44 @@ commands.
 For the shared stdio installation, use the separate
 [shared deployment runbook](shared-deployment.md).
 
+## Runtime locations
+
+One source repository produces two runtimes, each with its own manager:
+
+| Location | Contents | Managed by |
+| --- | --- | --- |
+| Source checkout, for example `~/Documents/ghq/github.com/foreignlab/mcp-obsidian-bridge/` | Git history and maintenance commands | Git |
+| `~/.local/share/mcp-obsidian-bridge/` | Shared stdio server for Codex, Claude Code, and Claude Desktop, on each PC | `scripts/deploy_shared.py` |
+| `~/.local/share/mcp-obsidian-chatgpt/` | Restricted ChatGPT gateway behind the Secure MCP Tunnel, on the gateway host only | `scripts/deploy.py` |
+
+The runtimes are separate so that each one selects its own source commit, updates
+and rolls back without touching the other, and keeps its own configuration.
+Updating the shared server only needs clients to reconnect. Updating the gateway
+restarts the Tunnel and briefly interrupts ChatGPT. The gateway also enforces the
+write allowlist, which the shared server does not have. The shared runtime root
+is itself a Git checkout retained for rollback, so the gateway should not live inside it.
+
+Paths and the LaunchAgent label in this runbook, the [gateway guide](../chatgpt/README.md),
+and [diagnostics](diagnostics.md) are the defaults:
+
+| Item | Default | Former name |
+| --- | --- | --- |
+| Gateway runtime root | `~/.local/share/mcp-obsidian-chatgpt/` | `~/.local/share/obsidian-chatgpt-mcp/` |
+| LaunchAgent label | `com.foreignlab.mcp-obsidian-chatgpt-tunnel` | `com.foreignlab.obsidian-chatgpt-tunnel` |
+
+An installation that has not been moved keeps the former names, including its
+plist `~/Library/LaunchAgents/<label>.plist`. For it, substitute the former names
+in these documents and pass both `--root` and `--label` to every manager command.
+Activation, rollback, and recovery stop before changing files when the label's
+LaunchAgent is not loaded; start a stopped LaunchAgent before running them.
+
 The [source release policy](releases.md) defines date tags and GitHub Releases.
 This runbook identifies runtime releases by full source commit SHA; record that
 SHA and the source tag, when available, for each deployment.
 
 ## Layout
 
-Under `~/.local/share/obsidian-chatgpt-mcp/`:
+Under `~/.local/share/mcp-obsidian-chatgpt/`:
 
 | Path | Purpose |
 | --- | --- |
@@ -28,6 +59,13 @@ Under `~/.local/share/obsidian-chatgpt-mcp/`:
 | `deploy/history.jsonl` | Preparation, activation, and recovery history without credentials. |
 | `logs/gateway.jsonl` | New bounded gateway diagnostics. |
 | `tunnel/` | Existing profile, key, binary, health locators, and Tunnel logs. |
+
+The managed `launch.sh` still names `obsidian-chatgpt-mcp` in its comment. The
+manager compares an installation's launcher byte-for-byte with its template, so
+the template stays unchanged and an installation at the former root remains
+manageable. Renaming the directory does not move an installation: `launch.sh`,
+`current`, each release's `connection.json` link, the LaunchAgent plist, and the
+Tunnel profile name the root, so a new root needs its own prepared releases.
 
 Do not move a release after building its virtual environment. Preparation
 installs directly at the final commit path and marks the manifest prepared
@@ -73,7 +111,8 @@ output is suppressed because it can contain configuration or Vault data.
 
 Activation rechecks release integrity and reruns the candidate probe. It
 records the old launcher/pointer/state, switches the launcher/current pointer,
-then restarts only `gui/<uid>/com.foreignlab.obsidian-chatgpt-tunnel`.
+then restarts only `gui/<uid>/com.foreignlab.mcp-obsidian-chatgpt-tunnel`, or the
+label passed with `--label`.
 ChatGPT is briefly unavailable during this restart. The health gate requires
 a new Tunnel PID, healthy/ready endpoints, and a successful control-plane
 poll within 60 seconds. A second probe uses the actual installed launcher.
@@ -135,7 +174,7 @@ are not rotated, deleted, or retroactively redacted by this change. See
 [diagnostics](diagnostics.md) for event meanings and privacy boundaries.
 
 ```sh
-log="$HOME/.local/share/obsidian-chatgpt-mcp/logs/gateway.jsonl"
+log="$HOME/.local/share/mcp-obsidian-chatgpt/logs/gateway.jsonl"
 rg '"event":"(gateway_failed|tool_failed|api_error|library_error)"' "$log"
 rg '"call_id":"REPLACE_WITH_CALL_ID"' "$log"
 ```

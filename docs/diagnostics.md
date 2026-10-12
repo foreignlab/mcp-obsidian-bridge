@@ -72,8 +72,10 @@ They identify where to investigate without printing configuration or paths.
    and Tunnel events. Raw dependency messages and tracebacks are deliberately
    omitted, so this event alone does not identify the exact protocol error.
 
-The LaunchAgent captures fallback stderr at
-`~/.local/share/obsidian-chatgpt-mcp/tunnel/launchd.stderr.log`; the Tunnel's own
+Paths below use the default gateway runtime root; see
+[runtime locations](deployment.md#runtime-locations) for an installation that has
+not been moved. The LaunchAgent captures fallback stderr at
+`~/.local/share/mcp-obsidian-chatgpt/tunnel/launchd.stderr.log`; the Tunnel's own
 runtime log is `tunnel/launchd-runtime.log`. These are separate from the
 managed gateway log. Verify a remote tool call against gateway diagnostics
 after each deployment.
@@ -81,7 +83,7 @@ after each deployment.
 Example searches:
 
 ```sh
-log="$HOME/.local/share/obsidian-chatgpt-mcp/logs/gateway.jsonl"
+log="$HOME/.local/share/mcp-obsidian-chatgpt/logs/gateway.jsonl"
 rg '"event":"(gateway_failed|tool_failed|api_error|library_error)"' "$log"
 rg '"call_id":"REPLACE_WITH_CALL_ID"' "$log"
 ```
