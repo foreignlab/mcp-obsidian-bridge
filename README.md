@@ -132,34 +132,31 @@ This setting does **not** restrict reads: the gateway can read across the Vault.
 
 ### Local client configuration
 
-Supply the shared connection settings through your MCP client's environment configuration. A client using the `mcpServers` JSON format can use:
+Use the [managed shared installation guide](docs/shared-installation.md) to create the runtime on a new macOS or Linux PC. It separates the source checkout from the execution environment and gives each client the same stable launcher. After installation, a client using the `mcpServers` JSON format can use:
 
 ```json
 {
   "mcpServers": {
-    "mcp-obsidian-bridge": {
-      "command": "/absolute/path/to/uv",
-      "args": [
-        "--directory", "/absolute/path/to/mcp-obsidian-bridge",
-        "run", "--locked", "--no-sync", "mcp-obsidian"
-      ],
+    "obsidian": {
+      "command": "/absolute/home/.local/share/mcp-obsidian-tls/launch.sh",
+      "args": [],
       "env": {
         "OBSIDIAN_API_KEY": "REPLACE_LOCALLY",
         "OBSIDIAN_HOST": "127.0.0.1",
         "OBSIDIAN_PORT": "27124",
         "OBSIDIAN_PROTOCOL": "https",
-        "REQUESTS_CA_BUNDLE": "/absolute/path/to/obsidian-ca.crt"
+        "REQUESTS_CA_BUNDLE": "/absolute/home/.config/mcp-obsidian/obsidian-ca.crt"
       }
     }
   }
 }
 ```
 
-Use your client's equivalent server settings if it uses another format. Find the `uv` executable with `command -v uv`.
+Replace `/absolute/home` with the actual home directory on that PC; MCP settings need absolute paths, not `~` or `$HOME`. Use your client's equivalent server settings if it uses another format. Preserve an existing server name and its client-specific tool settings when replacing its startup command.
 
-The source repository is named `mcp-obsidian-bridge`, but the Python distribution and executable retain the upstream name `mcp-obsidian`. The command above runs **this checkout** after the installation step below. A bare `uvx mcp-obsidian` installs the upstream package instead of this fork.
+The source repository is named `mcp-obsidian-bridge`, but the Python distribution and executable retain the upstream name `mcp-obsidian`. A bare `uvx mcp-obsidian` installs the upstream package instead of this fork.
 
-For an existing shared installation, the [managed shared deployment runbook](docs/shared-deployment.md) describes commit-specific environments, a stable client launcher, and rollback.
+For an existing shared installation, use the [shared deployment runbook](docs/shared-deployment.md) for launcher adoption, updates, and rollback. A dedicated checkout can also run the server directly with an absolute `uv` command and `--directory CHECKOUT run --locked --no-sync mcp-obsidian` after `uv sync --locked --no-dev`. That is a source-based installation: its updates use checkout and sync, rather than the managed launcher's activation and rollback.
 
 Alternatively, the shared server loads connection variables from a local `.env` file. Keep it private and ignored by Git. The ChatGPT gateway uses its own `connection.json` configuration.
 
@@ -176,7 +173,7 @@ Alternatively, the shared server loads connection variables from a local `.env` 
    uv sync --locked --no-dev
    ```
 
-Keep this checkout at a stable path: the following client commands refer to it. After updating the source, repeat `uv sync --locked --no-dev` and restart the affected MCP client or gateway.
+Keep this source checkout at a stable path. The source-based ChatGPT command below refers to it. Local clients use the separate managed runtime described in the next section; changing a development branch does not select a runtime release.
 
 ### Connect ChatGPT
 
@@ -206,9 +203,9 @@ This source-based setup does not install a background service. The [gateway oper
 
 ### Connect a local MCP client
 
-1. Add the [local client configuration](#local-client-configuration) to your client's MCP settings, using absolute paths to `uv`, this checkout, and your certificate file.
-2. Restart or reconnect the client so it launches `mcp-obsidian` from this checkout.
-3. Ask it to list the Vault's root files, then read a known note. Obsidian must remain running.
+1. Follow [Installing the managed shared client](docs/shared-installation.md). It covers a clean PC, the private connection profile, initial activation, and Codex, Claude Code, and Claude Desktop settings.
+2. Use the same reviewed source SHA on each PC. Each builds its own runtime under `~/.local/share/mcp-obsidian-tls/releases/<SHA>/`; the clients launch `~/.local/share/mcp-obsidian-tls/launch.sh` with empty arguments. Certificate paths and connection values belong to each PC.
+3. Reconnect each client and verify Vault listing, Recent Changes, and the release path of its MCP process as described in that guide. Obsidian must remain running.
 
 This entry point uses the shared server directly and does not apply the ChatGPT gateway's tool allowlist or write-folder restrictions.
 

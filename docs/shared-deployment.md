@@ -6,6 +6,11 @@ has its own locked environment. A stable launcher selects the environment for
 new client connections. [ChatGPT deployment](deployment.md) has a separate
 runtime and procedure.
 
+For a new PC with no shared runtime, start with
+[Installing the managed shared client](shared-installation.md). It creates a
+retained initial environment before using the preparation and activation
+commands below. A source clone alone does not create `launch.sh`.
+
 ## Prerequisites and layout
 
 Use Python 3.11+, Git, and uv. Run the commands below from a clean, reviewed
