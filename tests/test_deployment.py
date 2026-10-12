@@ -42,6 +42,7 @@ def deploy(tmp_path, monkeypatch):
     monkeypatch.setattr(app, '_probe', lambda *args, **kwargs: {'ok': True})
     monkeypatch.setattr(app, '_restart', lambda: None)
     monkeypatch.setattr(app, '_wait_healthy', lambda: None)
+    monkeypatch.setattr(app, '_check_service', lambda: None)
     return module, app
 
 
@@ -215,3 +216,99 @@ def test_unsafe_archive_members_are_rejected(deploy, tmp_path, name):
         archive.addfile(item, io.BytesIO(b'x'))
     with pytest.raises(module.DeploymentError, match='archive'):
         module.extract_archive(stream.getvalue(), tmp_path / 'extract')
+
+
+def test_label_selects_launchd_service(deploy, tmp_path):
+    module, app = deploy
+    assert app.label.endswith('/com.foreignlab.mcp-obsidian-chatgpt-tunnel')
+    custom = module.Deployment(app.root, app.repo, label='com.example.old-tunnel')
+    assert custom.label.startswith('gui/') and custom.label.endswith('/com.example.old-tunnel')
+
+
+def test_cli_defaults_name_current_runtime(deploy, monkeypatch, tmp_path):
+    module, _ = deploy
+    monkeypatch.setenv('HOME', str(tmp_path / 'home'))
+    seen = {}
+
+    class Recorder(module.Deployment):
+        def __init__(self, root, repo, uv, label):
+            seen.update(root=root, label=label)
+            super().__init__(root, repo, uv=uv, label=label)
+
+    monkeypatch.setattr(module, 'Deployment', Recorder)
+    module.main(['status'])
+    assert seen['root'] == tmp_path / 'home/.local/share/mcp-obsidian-chatgpt'
+    assert seen['label'] == 'com.foreignlab.mcp-obsidian-chatgpt-tunnel'
+
+
+@pytest.mark.parametrize('command', ['status', 'prepare', 'recover'])
+def test_cli_refuses_missing_root_without_creating_it(deploy, tmp_path, capsys, command):
+    module, app = deploy
+    root = tmp_path / 'missing-runtime'
+    assert module.main(['--root', str(root), '--repo', str(app.repo), command]) == 1
+    assert 'root does not exist' in json.loads(capsys.readouterr().err)['error']
+    assert not root.exists()
+
+
+def test_launcher_template_matches_installed_launchers(deploy):
+    module, app = deploy
+    # Installed launchers are compared byte-for-byte with this template.
+    fixed = module.Deployment(Path('/fixed/root'), app.repo)
+    assert fixed._launcher() == (
+        b'#!/bin/sh\n'
+        b'# Managed by obsidian-chatgpt-mcp/scripts/deploy.py\n'
+        b'set -eu\n'
+        b'base=/fixed/root\n'
+        b'release=$(CDPATH= cd -- "$base/current" && pwd -P)\n'
+        b'export OBSIDIAN_DIAGNOSTICS_DIR="$base/logs"\n'
+        b'unset PYTHONPATH PYTHONHOME VIRTUAL_ENV\n'
+        b'cd "$release"\n'
+        b'exec "$release/.venv/bin/python" "$release/chatgpt/gateway.py"\n'
+    )
+
+
+def test_service_check_asks_launchctl_for_the_configured_label(deploy, monkeypatch):
+    module, app = deploy
+    calls = []
+
+    def run(args, **kwargs):
+        calls.append([str(arg) for arg in args])
+        raise module.DeploymentError('launchctl exited 113; output suppressed')
+
+    monkeypatch.setattr(app, '_run', run)
+    with pytest.raises(module.DeploymentError, match='LaunchAgent service is not loaded'):
+        module.Deployment._check_service(app)
+    assert calls == [['/bin/launchctl', 'print', app.label]]
+
+
+def test_missing_service_stops_activation_before_any_change(deploy, monkeypatch):
+    module, app = deploy
+    revision = app.prepare()
+    before = (app.root / 'launch.sh').read_bytes()
+
+    def missing():
+        raise module.DeploymentError('LaunchAgent service is not loaded; check --label')
+
+    monkeypatch.setattr(app, '_check_service', missing)
+    with pytest.raises(module.DeploymentError, match='check --label'):
+        app.activate(revision)
+    assert (app.root / 'launch.sh').read_bytes() == before
+    assert not (app.root / 'current').exists()
+    assert not (app.root / 'deploy/pending.json').exists()
+    assert not (app.root / 'deploy/legacy-launch.sh').exists()
+    assert app.status() == {'active': 'legacy', 'previous': None, 'pending': False}
+
+
+def test_missing_service_stops_recover_before_restoring(deploy, monkeypatch):
+    module, app = deploy
+    (app.root / 'deploy').mkdir(exist_ok=True)
+    (app.root / 'deploy/pending.json').write_text('{}')
+
+    def missing():
+        raise module.DeploymentError('LaunchAgent service is not loaded; check --label')
+
+    monkeypatch.setattr(app, '_check_service', missing)
+    monkeypatch.setattr(app, '_restore', lambda: pytest.fail('restore must not run'))
+    with pytest.raises(module.DeploymentError, match='check --label'):
+        app.recover()
+    assert (app.root / 'deploy/pending.json').exists()

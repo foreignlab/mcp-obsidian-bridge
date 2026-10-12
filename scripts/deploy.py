@@ -19,6 +19,9 @@ import tempfile
 import time
 
 
+DEFAULT_LABEL = 'com.foreignlab.mcp-obsidian-chatgpt-tunnel'
+
+
 class DeploymentError(Exception):
     pass
 
@@ -65,13 +68,13 @@ def extract_archive(data, destination):
 
 
 class Deployment:
-    def __init__(self, root, repo, uv='/opt/homebrew/bin/uv', python=None):
+    def __init__(self, root, repo, uv='/opt/homebrew/bin/uv', python=None, label=DEFAULT_LABEL):
         self.root = Path(root).absolute()
         self.repo = Path(repo).absolute()
         self.uv = uv
         self.python = python or sys.executable
         self.control = self.root / 'deploy'
-        self.label = f'gui/{os.getuid()}/com.foreignlab.obsidian-chatgpt-tunnel'
+        self.label = f'gui/{os.getuid()}/{label}'
         self.old_pid = None
 
     @contextmanager
@@ -183,6 +186,8 @@ class Deployment:
             return revision
 
     def _launcher(self):
+        # Installed launchers are compared byte-for-byte with this template, so
+        # its text, including the pre-rename name below, must stay unchanged.
         return f'''#!/bin/sh
 # Managed by obsidian-chatgpt-mcp/scripts/deploy.py
 set -eu
@@ -227,6 +232,13 @@ exec "$release/.venv/bin/python" "$release/chatgpt/gateway.py"
             temporary.unlink()
         temporary.symlink_to(target)
         os.replace(temporary, current)
+
+    def _check_service(self):
+        # A wrong --label would otherwise fail only after the launcher changed.
+        try:
+            self._run(['/bin/launchctl', 'print', self.label], timeout=30)
+        except DeploymentError:
+            raise DeploymentError('LaunchAgent service is not loaded; check --label or start it') from None
 
     def _restart(self):
         pid_file = self.root / 'tunnel/launchd.pid'
@@ -289,6 +301,7 @@ exec "$release/.venv/bin/python" "$release/chatgpt/gateway.py"
 
     def _transition(self, target):
         state = self._check_active()
+        self._check_service()
         if target == state['active']:
             raise DeploymentError('Requested release is already active')
         if target == 'legacy':
@@ -342,21 +355,25 @@ exec "$release/.venv/bin/python" "$release/chatgpt/gateway.py"
         with self._lock():
             if not self.status()['pending']:
                 raise DeploymentError('No pending transition to recover')
+            self._check_service()
             self._restore()
             (self.control / 'pending.json').unlink()
             self._history('recovered', active=self.status()['active'])
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--root', type=Path, default=Path.home() / '.local/share/obsidian-chatgpt-mcp')
+    parser.add_argument('--root', type=Path, default=Path.home() / '.local/share/mcp-obsidian-chatgpt')
     parser.add_argument('--repo', type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument('--uv', default='/opt/homebrew/bin/uv')
+    parser.add_argument('--label', default=DEFAULT_LABEL)
     parser.add_argument('command', choices=['prepare', 'activate', 'rollback', 'recover', 'status'])
     parser.add_argument('revision', nargs='?')
-    args = parser.parse_args()
-    app = Deployment(args.root, args.repo, uv=args.uv)
+    args = parser.parse_args(argv)
+    app = Deployment(args.root, args.repo, uv=args.uv, label=args.label)
     try:
+        if not app.root.is_dir():
+            raise DeploymentError('Gateway runtime root does not exist; check --root')
         if args.command == 'prepare':
             print(json.dumps({'prepared': app.prepare(args.revision or 'HEAD')}))
         elif args.command == 'activate':

@@ -46,13 +46,17 @@ all subdirectories of each allowed folder are included automatically.
 Malformed values (including `null`) prevent gateway startup. The target folder
 must already exist in the Vault and cannot be a symlink. Read access is unchanged.
 
+Paths and the LaunchAgent label below are the defaults. An installation that has
+not been moved uses the former names in
+[runtime locations](../docs/deployment.md#runtime-locations).
+
 For managed deployments, edit
-`~/.local/share/obsidian-chatgpt-mcp/connection.json` (preserving mode 0600).
+`~/.local/share/mcp-obsidian-chatgpt/connection.json` (preserving mode 0600).
 Releases share this file. Restart the Tunnel LaunchAgent after editing so
 the running gateway reloads the policy and tool descriptions:
 
 ```sh
-launchctl kickstart -k gui/$(id -u)/com.foreignlab.obsidian-chatgpt-tunnel
+launchctl kickstart -k gui/$(id -u)/com.foreignlab.mcp-obsidian-chatgpt-tunnel
 ```
 
 The allowlist is loaded once at startup; future folder changes need no code
@@ -65,19 +69,19 @@ referenced by the profile. Never paste the runtime API key into chat.
 
 ## macOS automatic startup
 
-The user LaunchAgent at
-`~/Library/LaunchAgents/com.foreignlab.obsidian-chatgpt-tunnel.plist`
-runs `tunnel-client run` on GUI login and restarts it after process exit.
-The restart throttle is 30 seconds. The previous tmux-managed runtime was stopped.
+A user LaunchAgent, `~/Library/LaunchAgents/<label>.plist`, runs
+`tunnel-client run` on GUI login and restarts it after process exit.
+The restart throttle is 30 seconds. On the original installation, it replaced
+a tmux-managed runtime.
 Do not use `tunnel-client runtimes connect` while this LaunchAgent is active;
 it can start a duplicate runtime.
 
-The initial launch and automatic recovery after SIGTERM both passed health
-checks requiring a successful OpenAI control-plane poll. An actual Mac reboot
-was not performed. Obsidian must also be running for Vault operations;
-its own login-item settings were not changed.
+On the original installation, the initial launch and automatic recovery after
+SIGTERM both passed health checks requiring a successful OpenAI control-plane
+poll. An actual Mac reboot was not performed. Obsidian must also be running for
+Vault operations; its own login-item settings were not changed.
 
-Use `launchctl print gui/$(id -u)/com.foreignlab.obsidian-chatgpt-tunnel`
+Use `launchctl print gui/$(id -u)/com.foreignlab.mcp-obsidian-chatgpt-tunnel`
 to inspect the service. Use `launchctl bootout` with that service target to
 stop it for the current login session, `launchctl bootstrap gui/$(id -u)`
 with the plist path to start it again, or `launchctl kickstart -k` with the

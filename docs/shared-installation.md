@@ -23,6 +23,8 @@ to move it, see [Moving from the former default root](#moving-from-the-former-de
 | `~/.local/share/mcp-obsidian-bridge/deploy-shared/` | Private selection, original startup record, and recovery state |
 | `~/.config/mcp-obsidian-bridge/` | Private operator profile and trusted public certificate |
 
+The ChatGPT gateway is a separate runtime; see
+[runtime locations](deployment.md#runtime-locations) for how the two relate.
 The source checkout may live in your usual code directory. It is separate from
 the runtime; changing its branch does not change the selected release. The
 initial environment is retained for first rollback. Subsequent updates use
