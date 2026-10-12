@@ -138,14 +138,14 @@ Use the [managed shared installation guide](docs/shared-installation.md) to crea
 {
   "mcpServers": {
     "obsidian": {
-      "command": "/absolute/home/.local/share/mcp-obsidian-tls/launch.sh",
+      "command": "/absolute/home/.local/share/mcp-obsidian-bridge/launch.sh",
       "args": [],
       "env": {
         "OBSIDIAN_API_KEY": "REPLACE_LOCALLY",
         "OBSIDIAN_HOST": "127.0.0.1",
         "OBSIDIAN_PORT": "27124",
         "OBSIDIAN_PROTOCOL": "https",
-        "REQUESTS_CA_BUNDLE": "/absolute/home/.config/mcp-obsidian/obsidian-ca.crt"
+        "REQUESTS_CA_BUNDLE": "/absolute/home/.config/mcp-obsidian-bridge/obsidian-ca.crt"
       }
     }
   }
@@ -204,7 +204,7 @@ This source-based setup does not install a background service. The [gateway oper
 ### Connect a local MCP client
 
 1. Follow [Installing the managed shared client](docs/shared-installation.md). It covers a clean PC, the private connection profile, initial activation, and Codex, Claude Code, and Claude Desktop settings.
-2. Use the same reviewed source SHA on each PC. Each builds its own runtime under `~/.local/share/mcp-obsidian-tls/releases/<SHA>/`; the clients launch `~/.local/share/mcp-obsidian-tls/launch.sh` with empty arguments. Certificate paths and connection values belong to each PC.
+2. Use the same reviewed source SHA on each PC. Each builds its own runtime under `~/.local/share/mcp-obsidian-bridge/releases/<SHA>/`; the clients launch `~/.local/share/mcp-obsidian-bridge/launch.sh` with empty arguments. Certificate paths and connection values belong to each PC.
 3. Reconnect each client and verify Vault listing, Recent Changes, and the release path of its MCP process as described in that guide. Obsidian must remain running.
 
 This entry point uses the shared server directly and does not apply the ChatGPT gateway's tool allowlist or write-folder restrictions.
