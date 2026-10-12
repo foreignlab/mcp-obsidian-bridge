@@ -76,6 +76,14 @@ a tmux-managed runtime.
 Do not use `tunnel-client runtimes connect` while this LaunchAgent is active;
 it can start a duplicate runtime.
 
+The gateway runs as a child of `tunnel-client`. When the Vault is in a
+privacy-protected folder such as `~/Documents`, macOS requires Files and Folders
+access for `tunnel-client`, recorded for its executable path. A `tunnel-client` at
+a new path, for example after moving the runtime root, needs this access again.
+Grant it at the Mac's screen, in the access prompt or under System Settings >
+Privacy & Security > Files & Folders. Until then, the gateway waits after
+`gateway_starting` while Tunnel health remains ok.
+
 On the original installation, the initial launch and automatic recovery after
 SIGTERM both passed health checks requiring a successful OpenAI control-plane
 poll. An actual Mac reboot was not performed. Obsidian must also be running for

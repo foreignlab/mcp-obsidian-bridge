@@ -71,6 +71,11 @@ They identify where to investigate without printing configuration or paths.
 5. If only `library_error` appears, correlate it with startup/initialization
    and Tunnel events. Raw dependency messages and tracebacks are deliberately
    omitted, so this event alone does not identify the exact protocol error.
+6. If a running gateway process has `gateway_starting` but neither `gateway_ready`
+   nor `gateway_failed`, its startup has not finished. On macOS, check whether
+   `tunnel-client` lacks access to the Vault's folder; see
+   [macOS automatic startup](../chatgpt/README.md#macos-automatic-startup).
+   In the incident that added this step, `sample <pid>` showed the main thread in `open`.
 
 Paths below use the default gateway runtime root; see
 [runtime locations](deployment.md#runtime-locations) for an installation that has
